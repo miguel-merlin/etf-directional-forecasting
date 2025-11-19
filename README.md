@@ -1,4 +1,4 @@
-# screener
+# ETF Screener
 
 ETF screener that consumes locally stored price histories, computes common risk/return ratios, and produces easy-to-scan rankings. Utilities are also available to parse ticker symbols from watchlist CSVs and download their full Yahoo Finance histories so you can keep the inputs fresh.
 
