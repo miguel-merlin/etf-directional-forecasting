@@ -4,6 +4,18 @@ import matplotlib.pyplot as plt
 from typing import List, Tuple, Dict
 from scipy import stats
 import os
+from metrics import (
+    BaseMetric,
+    VolatilityMetric,
+    ReturnMetric,
+    SharpeMetric,
+    MaxDrawdownMetric,
+    MomentumMetric,
+    MovingAverageMetric,
+    VolOfVolMetric,
+    HigherMomentMetric,
+    UpDownCaptureMetric,
+)
 
 
 class ETFReturnPredictor:
@@ -26,6 +38,7 @@ class ETFReturnPredictor:
         self.features = pd.DataFrame()
         self.target = pd.DataFrame()
         self.results = {}
+
         if not os.path.exists(plot_dir):
             os.makedirs(plot_dir)
         self.plot_dir = plot_dir
@@ -47,7 +60,7 @@ class ETFReturnPredictor:
         self, lookback_periods: List[int] = [20, 60, 120, 252]
     ) -> pd.DataFrame:
         """
-        Calculate comprehensive set of predictive features.
+        Calculate comprehensive set of predictive features using metric classes.
 
         Features include:
         - Historical volatility (multiple windows)
@@ -56,65 +69,32 @@ class ETFReturnPredictor:
         - Risk-adjusted returns (Sharpe ratios)
         - Drawdown metrics
         - Trend indicators
+        - Volatility of volatility
+        - Skewness and Kurtosis
+        - Up/Down capture
         """
+        metric_calculators: List[BaseMetric] = [
+            VolatilityMetric(lookback_periods),
+            ReturnMetric(lookback_periods),
+            SharpeMetric(lookback_periods),
+            MaxDrawdownMetric(lookback_periods),
+            MomentumMetric(),
+            MovingAverageMetric(short_window=50, long_window=200),
+            VolOfVolMetric(vol_windows=[60, 120], volofvol_window=20),
+            HigherMomentMetric(windows=[60, 120]),
+            UpDownCaptureMetric(windows=[60, 120]),
+        ]
+
         features_dict = {}
 
         for etf in self.prices.columns:
             etf_features = pd.DataFrame(index=self.prices.index)
             prices = self.prices[etf]
             returns = self.returns[etf]
+            for metric_calc in metric_calculators:
+                metric_df = metric_calc.compute(prices, returns)
+                etf_features = pd.concat([etf_features, metric_df], axis=1)
 
-            # 1. Volatility metrics (annualized)
-            for period in lookback_periods:
-                etf_features[f"vol_{period}d"] = returns.rolling(
-                    period
-                ).std() * np.sqrt(252)
-
-            # 2. Return metrics
-            for period in lookback_periods:
-                etf_features[f"ret_{period}d"] = prices.pct_change(period)
-
-            # 3. Sharpe ratios (assuming 0% risk-free rate for simplicity)
-            for period in lookback_periods:
-                mean_ret = returns.rolling(period).mean() * 252
-                vol = returns.rolling(period).std() * np.sqrt(252)
-                etf_features[f"sharpe_{period}d"] = mean_ret / vol
-
-            # 4. Maximum drawdown
-            for period in lookback_periods:
-                rolling_max = prices.rolling(period, min_periods=1).max()
-                drawdown = (prices - rolling_max) / rolling_max
-                etf_features[f"max_dd_{period}d"] = drawdown.rolling(period).min()
-
-            # 5. Momentum and trend
-            etf_features["mom_12_1"] = prices.pct_change(252) - prices.pct_change(
-                21
-            )  # 12-1 month momentum
-
-            # 6. Moving average signals
-            etf_features["sma_50"] = prices.rolling(50).mean()
-            etf_features["sma_200"] = prices.rolling(200).mean()
-            etf_features["price_to_sma50"] = prices / etf_features["sma_50"] - 1
-            etf_features["price_to_sma200"] = prices / etf_features["sma_200"] - 1
-
-            # 7. Volatility of volatility
-            for period in [60, 120]:
-                vol = returns.rolling(period).std()
-                etf_features[f"vol_of_vol_{period}d"] = vol.rolling(20).std()
-
-            # 8. Skewness and Kurtosis
-            for period in [60, 120]:
-                etf_features[f"skew_{period}d"] = returns.rolling(period).skew()
-                etf_features[f"kurt_{period}d"] = returns.rolling(period).kurt()
-
-            # 9. Up/Down capture
-            for period in [60, 120]:
-                up_days = returns[returns > 0].rolling(period).mean()
-                down_days = returns[returns < 0].rolling(period).mean()
-                etf_features[f"up_capture_{period}d"] = up_days
-                etf_features[f"down_capture_{period}d"] = down_days
-
-            # Add ETF identifier
             etf_features["etf"] = etf
             features_dict[etf] = etf_features
 
@@ -211,14 +191,14 @@ class ETFReturnPredictor:
 
         try:
             merged["bin"] = self.discretize_metric(merged[metric_name], n_bins, method)
-        except:
+        except Exception:
             try:
                 merged["bin"] = self.discretize_metric(
                     merged[metric_name],
                     min(n_bins, len(merged[metric_name].unique())),
                     method,
                 )
-            except:
+            except Exception:
                 return {
                     "probabilities": pd.DataFrame(),
                     "overall_positive_rate": 0,
@@ -278,6 +258,9 @@ class ETFReturnPredictor:
                 continue
 
             probs = result["probabilities"]
+            if probs.empty:
+                continue
+
             overall_rate = result["overall_positive_rate"]
 
             # Calculate information gain (KL divergence from base rate)
@@ -287,7 +270,6 @@ class ETFReturnPredictor:
             # Avoid log(0)
             prob_dist = np.clip(prob_dist, 1e-10, 1 - 1e-10)
 
-            # Information gain
             ig = np.sum(
                 weights
                 * (
