@@ -56,12 +56,11 @@ def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
     print("=" * 80)
     print(summary.head(10).to_string(index=False))
 
-    print("\n\nGenerating visualizations for top 6 metrics...")
-    predictor.plot_top_metrics(n_metrics=6)
+    print("\n\nGenerating visualizations for all metrics...")
+    predictor.plot_top_metrics(summary=summary)
 
-    best_metric = summary.iloc[0]["metric"]
-    print(f"\n\nDetailed analysis of best metric: {best_metric}")
-    predictor.plot_metric_probabilities(best_metric)
+    print("\n\nSaving probability plots for each metric (with bin ranges and KL)")
+    predictor.plot_metric_probabilities_for_metrics(summary["metric"].tolist())
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

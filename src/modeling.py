@@ -1,9 +1,11 @@
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from typing import List, Tuple, Dict
-from scipy import stats
 import os
+from typing import Dict, List, Optional, Sequence, Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from scipy import stats
+
 from metrics import BaseMetric, get_metrics
 
 
@@ -296,11 +298,36 @@ class ETFReturnPredictor:
 
         return results_df
 
+    def _prepare_probability_plot_data(
+        self, metric_name: str
+    ) -> Tuple[pd.DataFrame, float]:
+        """Return probability frame augmented with bin labels and KL divergence."""
+        result = self.results[metric_name]
+        probs = result["probabilities"].copy()
+
+        probs["bin_label"] = [
+            f"{metric_min:.4g} – {metric_max:.4g}"
+            for metric_min, metric_max in zip(
+                probs["metric_min"].values, probs["metric_max"].values
+            )
+        ]
+
+        overall_rate = np.clip(result["overall_positive_rate"], 1e-6, 1 - 1e-6)
+        probs["prob_positive"] = np.clip(probs["prob_positive"], 1e-6, 1 - 1e-6)
+        probs["kl_divergence"] = probs["prob_positive"] * np.log(
+            probs["prob_positive"] / overall_rate
+        ) + (1 - probs["prob_positive"]) * np.log(
+            (1 - probs["prob_positive"]) / (1 - overall_rate)
+        )
+
+        return probs, overall_rate
+
     def plot_metric_probabilities(
         self, metric_name: str, figsize: Tuple[int, int] = (12, 6)
     ):
         """
         Visualize P(I=1 | metric) with confidence intervals.
+        Single-axis version (no subplots).
         """
         if metric_name not in self.results:
             print(
@@ -308,13 +335,14 @@ class ETFReturnPredictor:
             )
             return
 
-        result = self.results[metric_name]
-        probs = result["probabilities"]
+        probs, overall_rate = self._prepare_probability_plot_data(metric_name)
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+        fig, ax = plt.subplots(figsize=figsize)
 
-        x = range(len(probs))
-        ax1.plot(
+        x = np.arange(len(probs))
+
+        # --- Probability line ---
+        ax.plot(
             x,
             probs["prob_positive"],
             "o-",
@@ -322,26 +350,44 @@ class ETFReturnPredictor:
             markersize=8,
             label="P(I=1|metric)",
         )
-        ax1.fill_between(x, probs["ci_lower"], probs["ci_upper"], alpha=0.3)
-        ax1.axhline(
-            result["overall_positive_rate"],
+
+        # Confidence intervals
+        ax.fill_between(x, probs["ci_lower"], probs["ci_upper"], alpha=0.3)
+
+        # Overall rate horizontal line
+        ax.axhline(
+            overall_rate,
             color="r",
             linestyle="--",
-            label=f'Overall rate: {result["overall_positive_rate"]:.3f}',
+            label=f"Overall rate: {overall_rate:.3f}",
         )
-        ax1.set_xlabel("Metric Bin (Low to High)")
-        ax1.set_ylabel("P(Positive 6m Return)")
-        ax1.set_title(f"Conditional Probability: {metric_name}")
-        ax1.legend()
-        ax1.grid(alpha=0.3)
-        ax1.set_ylim([0, 1])
 
-        # Plot 2: Sample sizes
-        ax2.bar(x, probs["count"], alpha=0.6, color="steelblue")
-        ax2.set_xlabel("Metric Bin (Low to High)")
-        ax2.set_ylabel("Number of Observations")
-        ax2.set_title("Sample Size per Bin")
-        ax2.grid(alpha=0.3, axis="y")
+        ax.set_xlabel("Metric Bin (Low → High)")
+        ax.set_ylabel("P(Positive 6m Return)")
+        ax.set_title(f"Conditional Probability: {metric_name}")
+        ax.set_ylim(0, 1)
+        ax.grid(alpha=0.3)
+
+        # X tick labels
+        ax.set_xticks(x)
+        ax.set_xticklabels(probs["bin_label"], rotation=45, ha="right")
+
+        # --- KL Divergence on twin axis ---
+        ax_kl = ax.twinx()
+        ax_kl.bar(
+            x,
+            probs["kl_divergence"],
+            alpha=0.25,
+            color="darkorange",
+            width=0.5,
+            label="KL divergence",
+        )
+        ax_kl.set_ylabel("KL Divergence")
+
+        # Merge legends
+        lines, labels = ax.get_legend_handles_labels()
+        bars, bar_labels = ax_kl.get_legend_handles_labels()
+        ax.legend(lines + bars, labels + bar_labels, loc="upper left")
 
         plt.tight_layout()
         plt.savefig(self.plot_dir + f"/{metric_name}_probability_plot.png")
@@ -354,51 +400,82 @@ class ETFReturnPredictor:
                 [
                     "metric_min",
                     "metric_max",
+                    "bin_label",
                     "metric_mean",
                     "prob_positive",
                     "count",
                     "ci_lower",
                     "ci_upper",
+                    "kl_divergence",
                 ]
             ].to_string()
         )
 
-    def plot_top_metrics(self, n_metrics: int = 6, figsize: Tuple[int, int] = (15, 10)):
-        """
-        Plot the top N most predictive metrics in a grid.
-        """
-        summary = self.analyze_all_metrics()
-        top_metrics = summary.head(n_metrics)["metric"].tolist()
+    def plot_metric_probabilities_for_metrics(self, metrics: Sequence[str]) -> None:
+        """Generate and save probability plots for the requested metrics."""
 
-        n_rows = (n_metrics + 1) // 2
-        fig, axes = plt.subplots(n_rows, 2, figsize=figsize)
+        for metric in metrics:
+            print(f"  Plotting detailed probabilities for {metric}...")
+            self.plot_metric_probabilities(metric)
+
+    def plot_top_metrics(
+        self,
+        n_metrics: Optional[int] = None,
+        figsize: Tuple[int, int] = (15, 10),
+        summary: Optional[pd.DataFrame] = None,
+    ) -> None:
+        """Plot probability curves for either all or the top-N metrics in a grid."""
+
+        summary_df = summary if summary is not None else self.analyze_all_metrics()
+        metrics = summary_df["metric"].tolist()
+        if n_metrics is not None:
+            metrics = metrics[:n_metrics]
+
+        if not metrics:
+            print("No metrics available to plot.")
+            return
+
+        n_cols = 2
+        n_rows = (len(metrics) + n_cols - 1) // n_cols
+        fig_height = max(figsize[1], n_rows * 4)
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(figsize[0], fig_height))
         axes = axes.flatten()
+        info_gain_map = (
+            summary_df.set_index("metric")["information_gain"].to_dict()
+            if "information_gain" in summary_df.columns
+            else {}
+        )
 
-        for idx, metric in enumerate(top_metrics):
-            result = self.results[metric]
-            probs = result["probabilities"]
-
-            x = range(len(probs))
+        for idx, metric in enumerate(metrics):
+            probs, overall_rate = self._prepare_probability_plot_data(metric)
+            x = np.arange(len(probs))
             axes[idx].plot(x, probs["prob_positive"], "o-", linewidth=2, markersize=6)
             axes[idx].fill_between(x, probs["ci_lower"], probs["ci_upper"], alpha=0.3)
             axes[idx].axhline(
-                result["overall_positive_rate"],
+                overall_rate,
                 color="r",
                 linestyle="--",
                 alpha=0.5,
                 linewidth=1,
             )
-            axes[idx].set_xlabel("Bin")
             axes[idx].set_ylabel("P(I=1)")
             axes[idx].set_title(
-                f'{metric}\n(IG: {summary.iloc[idx]["information_gain"]:.4f})'
+                f"{metric}\n(IG: {info_gain_map.get(metric, float('nan')):.4f})"
             )
             axes[idx].grid(alpha=0.3)
             axes[idx].set_ylim([0, 1])
+            axes[idx].set_xticks(x)
+            axes[idx].set_xticklabels(
+                probs["bin_label"], rotation=45, ha="right", fontsize=8
+            )
 
-        # Hide unused subplots
-        for idx in range(n_metrics, len(axes)):
+        for idx in range(len(metrics), len(axes)):
             axes[idx].axis("off")
 
         plt.tight_layout()
-        plt.savefig(self.plot_dir + "/top_metrics_probability_plots.png")
+        filename = (
+            "all_metrics_probability_grid.png"
+            if n_metrics is None or n_metrics >= len(summary_df)
+            else "top_metrics_probability_plots.png"
+        )
+        plt.savefig(os.path.join(self.plot_dir, filename))
