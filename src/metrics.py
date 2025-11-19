@@ -144,3 +144,24 @@ class UpDownCaptureMetric(BaseMetric):
             df[f"up_capture_{period}d"] = up_days
             df[f"down_capture_{period}d"] = down_days
         return df
+
+
+def get_metrics(
+    lookback_periods: List[int],
+    short_window: int,
+    long_window: int,
+    vol_windows: List[int],
+    volofvol_window: int,
+) -> List[BaseMetric]:
+    """Return a list of all available metric calculator classes."""
+    return [
+        VolatilityMetric(lookback_periods),
+        ReturnMetric(lookback_periods),
+        SharpeMetric(lookback_periods),
+        MaxDrawdownMetric(lookback_periods),
+        MomentumMetric(),
+        MovingAverageMetric(short_window=short_window, long_window=long_window),
+        VolOfVolMetric(vol_windows=vol_windows, volofvol_window=volofvol_window),
+        HigherMomentMetric(windows=vol_windows),
+        UpDownCaptureMetric(windows=vol_windows),
+    ]

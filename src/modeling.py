@@ -4,18 +4,7 @@ import matplotlib.pyplot as plt
 from typing import List, Tuple, Dict
 from scipy import stats
 import os
-from metrics import (
-    BaseMetric,
-    VolatilityMetric,
-    ReturnMetric,
-    SharpeMetric,
-    MaxDrawdownMetric,
-    MomentumMetric,
-    MovingAverageMetric,
-    VolOfVolMetric,
-    HigherMomentMetric,
-    UpDownCaptureMetric,
-)
+from metrics import BaseMetric, get_metrics
 
 
 class ETFReturnPredictor:
@@ -73,17 +62,13 @@ class ETFReturnPredictor:
         - Skewness and Kurtosis
         - Up/Down capture
         """
-        metric_calculators: List[BaseMetric] = [
-            VolatilityMetric(lookback_periods),
-            ReturnMetric(lookback_periods),
-            SharpeMetric(lookback_periods),
-            MaxDrawdownMetric(lookback_periods),
-            MomentumMetric(),
-            MovingAverageMetric(short_window=50, long_window=200),
-            VolOfVolMetric(vol_windows=[60, 120], volofvol_window=20),
-            HigherMomentMetric(windows=[60, 120]),
-            UpDownCaptureMetric(windows=[60, 120]),
-        ]
+        metric_calculators: List[BaseMetric] = get_metrics(
+            lookback_periods=lookback_periods,
+            short_window=50,
+            long_window=200,
+            vol_windows=[60, 120],
+            volofvol_window=20,
+        )
 
         features_dict = {}
 
