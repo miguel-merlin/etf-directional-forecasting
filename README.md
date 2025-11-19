@@ -40,17 +40,18 @@ The screener expects a CSV per ETF stored inside `data/etfs/`. Each file should 
    - `fetch_yfinance_data` saves a `ticker_info_<timestamp>.csv` file and an `individual_histories_<timestamp>/` folder containing one CSV per symbol. Copy or move the ETFs you want ranked into `data/etfs/`.
 
 ## Running the screener
-With the data directory populated, run:
+The CLI exposes one flag per feature so you can fetch data, rank ETFs, or do both in a single command.
 
-```bash
-python -m src.main
-```
+- `python -m src.main --rank-etfs` – default behavior; omitting the flag does the same.
+- `python -m src.main --fetch-data` – parse tickers via `--ticker-pattern` (default `data/*.csv`) and save downloads under `--fetch-output-dir` (default `data`).
+- `python -m src.main --rank-etfs --display-metrics Sharpe_Ratio Annualized_Return_%` – pass custom metrics to print, and `--rankings-output`/`--etf-dir` to change file locations.
+- Combine both flags to fetch data and immediately rank the refreshed histories.
 
-The script will:
-1. Read every CSV in `data/etfs/`.
+When ranking runs it will:
+1. Read every CSV in `data/etfs/` (or the directory you supplied).
 2. Compute the metrics defined in `src/metrics.py`.
-3. Print ranked tables for Sharpe ratio, annualized return, and volatility.
-4. Export the consolidated results to `etf_rankings.csv` in the project root.
+3. Print ranked tables for each metric you requested.
+4. Export the consolidated results to `etf_rankings.csv` by default.
 
 If no files are found you will see an error message such as `No CSV files found in data/etfs`.
 
