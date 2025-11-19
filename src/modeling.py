@@ -391,6 +391,7 @@ class ETFReturnPredictor:
 
         plt.tight_layout()
         plt.savefig(self.plot_dir + f"/{metric_name}_probability_plot.png")
+        plt.close()
 
         # Print bin details
         print(f"\n{metric_name} - Bin Details:")
@@ -479,3 +480,4 @@ class ETFReturnPredictor:
             else "top_metrics_probability_plots.png"
         )
         plt.savefig(os.path.join(self.plot_dir, filename))
+        plt.close()
