@@ -1,28 +1,12 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Sequence
 
-from utils import parse_tickers_from_csvs, fetch_yfinance_data
-from metrics import rank_etfs, display_rankings
-
-
-@dataclass
-class FetchConfig:
-    """Configuration for fetching ticker data from Yahoo Finance."""
-
-    ticker_pattern: str = "data/*.csv"
-    output_dir: str = "data"
-
-
-@dataclass
-class RankingConfig:
-    """Configuration for ranking stored ETF CSV files."""
-
-    data_dir: str = "data/etfs"
-    output_file: str = "etf_rankings.csv"
-    metrics_to_display: Sequence[str] = ("Sharpe_Ratio", "Annualized_Return_%", "Volatility_%")
+from utils import parse_tickers_from_csvs, fetch_yfinance_data, load_etf_data_from_csvs
+from ranking import rank_etfs, display_rankings
+from modeling import ETFReturnPredictor
+from config import FetchConfig, RankingConfig, ETFReturnModelingConfig
 
 
 def run_fetch_workflow(config: FetchConfig) -> None:
@@ -50,6 +34,34 @@ def run_ranking_workflow(config: RankingConfig) -> None:
 
     rankings.to_csv(config.output_file, index_label="Rank")
     print(f"Rankings saved to '{config.output_file}'")
+
+
+def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
+    """Model ETF returns based on historical data and features."""
+    etf_price_data = load_etf_data_from_csvs(config.data_dir)
+    predictor = ETFReturnPredictor(etf_price_data)
+    target = predictor.create_target_variable(months=config.target_return_period_months)
+    print("Target variable created. Shape:", target.shape)
+    print(f"Overall positive rate: {target.mean().mean():.3f}")
+
+    features = predictor.calculate_features()
+    print(f"\nFeatures calculated. Shape: {features.shape}")
+    print(f"Number of metrics: {len([c for c in features.columns if c != 'etf'])}")
+
+    print("\nAnalyzing all metrics...")
+    summary = predictor.analyze_all_metrics(n_bins=5)
+
+    print("\n" + "=" * 80)
+    print("TOP 10 PREDICTIVE METRICS (by Information Gain)")
+    print("=" * 80)
+    print(summary.head(10).to_string(index=False))
+
+    print("\n\nGenerating visualizations for top 6 metrics...")
+    predictor.plot_top_metrics(n_metrics=6)
+
+    best_metric = summary.iloc[0]["metric"]
+    print(f"\n\nDetailed analysis of best metric: {best_metric}")
+    predictor.plot_metric_probabilities(best_metric)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -90,6 +102,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=["Sharpe_Ratio", "Annualized_Return_%", "Volatility_%"],
         help="List of metrics to display when showing rankings.",
     )
+    parser.add_argument(
+        "--model-etf-returns",
+        action="store_true",
+        help="Model ETF returns based on historical data and features.",
+    )
+    parser.add_argument(
+        "--model-plot-dir",
+        default="results/plots",
+        help="Directory where modeling plots should be saved.",
+    )
+    parser.add_argument(
+        "--model-target-months",
+        type=int,
+        default=6,
+        help="Number of months ahead for the target return variable.",
+    )
 
     return parser.parse_args(argv)
 
@@ -106,14 +134,18 @@ def main() -> None:
         output_file=args.rankings_output,
         metrics_to_display=tuple(args.display_metrics),
     )
-
-    requested_feature = args.fetch_data or args.rank_etfs
+    etf_returns_modeling_config = ETFReturnModelingConfig(
+        data_dir=args.etf_dir,
+        plot_dir=args.model_plot_dir,
+        target_return_period_months=args.model_target_months,
+    )
 
     if args.fetch_data:
         run_fetch_workflow(fetch_config)
-
-    if args.rank_etfs or not requested_feature:
+    if args.rank_etfs:
         run_ranking_workflow(ranking_config)
+    if args.model_etf_returns:
+        run_etf_modeling_workflow(etf_returns_modeling_config)
 
 
 if __name__ == "__main__":
