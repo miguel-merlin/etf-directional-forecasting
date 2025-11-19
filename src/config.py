@@ -30,3 +30,4 @@ class ETFReturnModelingConfig:
     data_dir: str = "data/etfs"
     plot_dir: str = "results/plots"
     target_return_period_months: int = 6
+    n_bins: int = 5

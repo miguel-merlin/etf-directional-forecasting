@@ -49,7 +49,7 @@ def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
     print(f"Number of metrics: {len([c for c in features.columns if c != 'etf'])}")
 
     print("\nAnalyzing all metrics...")
-    summary = predictor.analyze_all_metrics(n_bins=5)
+    summary = predictor.analyze_all_metrics(n_bins=config.n_bins)
 
     print("\n" + "=" * 80)
     print("TOP 10 PREDICTIVE METRICS (by Information Gain)")
@@ -117,6 +117,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=6,
         help="Number of months ahead for the target return variable.",
     )
+    parser.add_argument(
+        "--model-bins",
+        type=int,
+        default=5,
+        help="Number of bins to use when discretizing metrics during modeling.",
+    )
 
     return parser.parse_args(argv)
 
@@ -137,6 +143,7 @@ def main() -> None:
         data_dir=args.etf_dir,
         plot_dir=args.model_plot_dir,
         target_return_period_months=args.model_target_months,
+        n_bins=args.model_bins,
     )
 
     if args.fetch_data:
