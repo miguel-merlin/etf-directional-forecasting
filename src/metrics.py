@@ -7,7 +7,7 @@ from typing import Dict
 def calculate_metrics(df: pd.DataFrame, ticker: str) -> Dict:
     """Calculate performance metrics for a single ETF."""
     df = df.copy()
-    df["Date"] = pd.to_datetime(df["Date"])
+    df["Date"] = pd.to_datetime(df["Date"], utc=True)
     df = df.sort_values("Date")
 
     df["Daily_Return"] = df["Close"].pct_change()
