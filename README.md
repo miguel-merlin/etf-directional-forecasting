@@ -7,12 +7,15 @@ ETF screener that consumes locally stored price histories, computes common risk/
 - Daily-return derived metrics such as annualized return, volatility, Sharpe ratio, max drawdown, and YTD return
 - Console rankings plus an `etf_rankings.csv` export for further analysis
 - Helper utilities to (a) extract symbols from multiple CSV sources and (b) pull their entire trading history via `yfinance`
+- Model 3- to 12-month ETF return probabilities, rank the most predictive metrics, and auto-generate probability plots
 
 ## Repository layout
 | Path | Purpose |
 | --- | --- |
 | `src/main.py` | Entry point that ranks ETFs stored under `data/etfs`. |
 | `src/metrics.py` | Calculates portfolio statistics and prints the rankings table. |
+| `src/modeling.py` | Builds signal features, models forward returns, and plots conditional probabilities. |
+| `src/config.py` | Typed configuration containers shared across the CLI workflows. |
 | `src/utils.py` | Helper functions for parsing tickers and downloading new price histories. |
 | `data/` | Sample output plus your downloadable price histories. Each ETF should be its own CSV inside `data/etfs/`. |
 
@@ -45,6 +48,7 @@ The CLI exposes one flag per feature so you can fetch data, rank ETFs, or do bot
 - `python -m src.main --rank-etfs` – default behavior; omitting the flag does the same.
 - `python -m src.main --fetch-data` – parse tickers via `--ticker-pattern` (default `data/*.csv`) and save downloads under `--fetch-output-dir` (default `data`).
 - `python -m src.main --rank-etfs --display-metrics Sharpe_Ratio Annualized_Return_%` – pass custom metrics to print, and `--rankings-output`/`--etf-dir` to change file locations.
+- `python -m src.main --model-etf-returns` – compute predictive features, evaluate their power against a forward return target, and save plots to `--model-plot-dir` (default `results/plots`).
 - Combine both flags to fetch data and immediately rank the refreshed histories.
 
 When ranking runs it will:
@@ -54,6 +58,23 @@ When ranking runs it will:
 4. Export the consolidated results to `etf_rankings.csv` by default.
 
 If no files are found you will see an error message such as `No CSV files found in data/etfs`.
+
+## Modeling ETF returns
+The modeling workflow estimates the probability that each ETF posts a positive forward return (6 months ahead by default) based on the technical metrics produced in `src/modeling.py`.
+
+```bash
+python -m src.main --model-etf-returns \
+  --etf-dir data/etfs \
+  --model-target-months 6 \
+  --model-plot-dir results/plots
+```
+
+What you get:
+- Console summary of the top predictive metrics ranked by information gain, chi-square statistics, and sample counts.
+- A grid of plots for the top metrics plus a detailed chart for the best one, stored in `results/plots/`.
+- Saved probability tables (per metric) inside `ETFReturnPredictor.results` while the process is running, so you can reuse them inside notebooks if needed.
+
+Adjust `--model-target-months` to change the look-ahead window (e.g., 3, 6, or 12 months). Set `--model-plot-dir` if you want the PNGs to live elsewhere.
 
 ## Metrics explained
 All returns assume trading days and use percentages unless noted otherwise.
@@ -71,6 +92,7 @@ All returns assume trading days and use percentages unless noted otherwise.
 - Change `data/etfs` inside `src/main.py` if your histories live elsewhere.
 - Adjust the risk-free rate in `src/metrics.py` to match your assumptions.
 - Extend `display_rankings` if you need additional printouts or prefer different sort orders.
+- Use `--model-target-months` and `--model-plot-dir` to tune the return-modeling workflow without touching the source.
 
 ## Troubleshooting
 - **`No CSV files found`** – Ensure the directory exists and the files carry the `.csv` extension.
