@@ -3,6 +3,7 @@ import glob
 import os
 import yfinance as yf
 from datetime import datetime
+from pathlib import Path
 
 
 def parse_tickers_from_csvs(file_pattern="*.csv"):
@@ -106,3 +107,57 @@ def fetch_yfinance_data(tickers, output_dir="data"):
     print("\n✓ All data fetched successfully!")
 
     return info_df, all_history
+
+
+def load_etf_data_from_csvs(data_dir: str) -> pd.DataFrame:
+    """
+    Load ETF data from multiple CSV files and create price DataFrame.
+
+    Parameters:
+    -----------
+    data_dir : str
+        Directory containing CSV files with ETF data
+
+    Returns:
+    --------
+    pd.DataFrame with DateTimeIndex and ETF names as columns
+    """
+
+    data_path = Path(data_dir)
+    csv_files = list(data_path.glob("*.csv"))
+
+    if not csv_files:
+        print(f"No CSV files found in {data_dir}")
+        return pd.DataFrame()
+
+    price_data = {}
+
+    for csv_file in csv_files:
+        try:
+            df = pd.read_csv(csv_file)
+            df["Date"] = pd.to_datetime(df["Date"], utc=True)
+            df = df.sort_values("Date")
+            df.set_index("Date", inplace=True)
+            etf_name = csv_file.stem
+            if "Close" in df.columns:
+                price_data[etf_name] = df["Close"]
+            else:
+                print(f"Warning: 'Close' column not found in {csv_file}")
+
+        except Exception as e:
+            print(f"Error processing {csv_file}: {e}")
+            continue
+
+    if not price_data:
+        print("No valid price data loaded")
+        return pd.DataFrame()
+
+    prices_df = pd.DataFrame(price_data)
+    prices_df = prices_df.ffill()
+    prices_df = prices_df.dropna(how="all")
+
+    print(f"Loaded {len(prices_df.columns)} ETFs with {len(prices_df)} dates")
+    print(f"Date range: {prices_df.index.min()} to {prices_df.index.max()}")
+    print(f"ETFs: {', '.join(prices_df.columns.tolist())}")
+
+    return prices_df
