@@ -1,4 +1,5 @@
 import os
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
@@ -7,6 +8,20 @@ import pandas as pd
 from scipy import stats
 
 from metrics import BaseMetric, get_metrics
+
+
+@dataclass
+class RankedMetric:
+    """Container for ranked predictive metric information."""
+
+    name: str
+    information_gain: float
+    prob_range: float
+    chi2_statistic: float
+    p_value: float
+    min_prob: float
+    max_prob: float
+    n_observations: int
 
 
 class ETFReturnPredictor:
@@ -29,6 +44,7 @@ class ETFReturnPredictor:
         self.features = pd.DataFrame()
         self.target = pd.DataFrame()
         self.results = {}
+        self.metric_summary = pd.DataFrame()
 
         if not os.path.exists(plot_dir):
             os.makedirs(plot_dir)
@@ -294,9 +310,62 @@ class ETFReturnPredictor:
             self.results[metric] = result
 
         results_df = pd.DataFrame(results_list)
-        results_df = results_df.sort_values("information_gain", ascending=False)
+        if not results_list:
+            # Return an empty frame with the expected schema so downstream code can handle it
+            results_df = results_df.reindex(
+                columns=[
+                    "metric",
+                    "information_gain",
+                    "prob_range",
+                    "chi2_statistic",
+                    "p_value",
+                    "min_prob",
+                    "max_prob",
+                    "n_observations",
+                ]
+            )
+        else:
+            results_df = results_df.sort_values("information_gain", ascending=False)
+        self.metric_summary = results_df
 
         return results_df
+
+    def get_top_metrics(
+        self, top_n: Optional[int] = None
+    ) -> List[RankedMetric]:
+        """
+        Return the ranked metric summaries as dataclass instances.
+
+        Parameters
+        ----------
+        top_n : Optional[int]
+            Limit to the top-N metrics. If None, return all ranked metrics.
+        """
+        if self.metric_summary.empty:
+            summary_df = self.analyze_all_metrics()
+        else:
+            summary_df = self.metric_summary
+
+        if summary_df.empty:
+            return []
+
+        top_df = summary_df if top_n is None else summary_df.head(top_n)
+
+        ranked_metrics = [
+            RankedMetric(
+                name=row["metric"],
+                information_gain=row["information_gain"],
+                prob_range=row["prob_range"],
+                chi2_statistic=row["chi2_statistic"],
+                p_value=row["p_value"],
+                min_prob=row["min_prob"],
+                max_prob=row["max_prob"],
+                n_observations=int(row["n_observations"]),
+            )
+            for _, row in top_df.iterrows()
+        ]
+
+        return ranked_metrics
 
     def _prepare_probability_plot_data(
         self, metric_name: str

@@ -39,14 +39,14 @@ The screener expects a CSV per ETF stored inside `data/etfs/`. Each file should 
    tickers = parse_tickers_from_csvs("data/screener/*.csv")  # glob for the CSVs you care about
    info_df, histories = fetch_yfinance_data(tickers, output_dir="data")
    ```
-   - `parse_tickers_from_csvs` scans every matching CSV and looks for a column whose name contains "ticker".
+   - `parse_tickers_from_csvs` can scan a single CSV (like `data/watchlist.csv`), every CSV in a directory, or any glob pattern and looks for a column whose name contains "ticker".
    - `fetch_yfinance_data` saves a `ticker_info_<timestamp>.csv` file and an `individual_histories_<timestamp>/` folder containing one CSV per symbol. Copy or move the ETFs you want ranked into `data/etfs/`.
 
 ## Running the screener
 The CLI exposes one flag per feature so you can fetch data, rank ETFs, or do both in a single command.
 
 - `python -m src.main --rank-etfs` – default behavior; omitting the flag does the same.
-- `python -m src.main --fetch-data` – parse tickers via `--ticker-pattern` (default `data/*.csv`) and save downloads under `--fetch-output-dir` (default `data`).
+- `python -m src.main --fetch-data` – parse tickers via `--ticker-pattern` (default `data/*.csv`) and save downloads under `--fetch-output-dir` (default `data`). The pattern now accepts direct CSV paths (e.g., `data/watchlist.csv`) in addition to directories or globs, so you can run the fetcher on a single watchlist file.
 - `python -m src.main --rank-etfs --display-metrics Sharpe_Ratio Annualized_Return_%` – pass custom metrics to print, and `--rankings-output`/`--etf-dir` to change file locations.
 - `python -m src.main --model-etf-returns` – compute predictive features, evaluate their power against a forward return target, and save plots to `--model-plot-dir` (default `results/plots`).
 - Combine both flags to fetch data and immediately rank the refreshed histories.

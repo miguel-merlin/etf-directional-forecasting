@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 import argparse
 from typing import Sequence
+import pandas as pd
 
 from utils import parse_tickers_from_csvs, fetch_yfinance_data, load_etf_data_from_csvs
-from ranking import rank_etfs, display_rankings
+from ranking import ETFRanker
 from modeling import ETFReturnPredictor
 from config import FetchConfig, RankingConfig, ETFReturnModelingConfig
 
@@ -22,15 +21,20 @@ def run_fetch_workflow(config: FetchConfig) -> None:
 
 def run_ranking_workflow(config: RankingConfig) -> None:
     """Rank ETFs stored under the configured directory."""
-
-    rankings = rank_etfs(config.data_dir)
+    ranker = ETFRanker(config.data_dir)
+    rankings = pd.DataFrame()
+    if config.rank_predictive_metrics:
+        predictor = ETFReturnPredictor(load_etf_data_from_csvs(config.data_dir))
+        rankings = ETFRanker.rank_predictive_metrics(predictor)
+    else:
+        rankings = ranker.rank()
 
     if rankings.empty:
         return
 
     for metric in config.metrics_to_display:
         print(f"\n=== Rankings for {metric} ===")
-        display_rankings(rankings, metric)
+        ranker.display(rankings, metric)
 
     rankings.to_csv(config.output_file, index_label="Rank")
     print(f"Rankings saved to '{config.output_file}'")
@@ -54,7 +58,6 @@ def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
     print("\n" + "=" * 80)
     print("TOP 10 PREDICTIVE METRICS (by Information Gain)")
     print("=" * 80)
-    print(summary.head(10).to_string(index=False))
 
     print("\n\nGenerating visualizations for all metrics...")
     predictor.plot_top_metrics(summary=summary)
@@ -65,6 +68,8 @@ def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="ETF Screener features")
+
+    ## Fetching arguments
     parser.add_argument(
         "--fetch-data",
         action="store_true",
@@ -73,13 +78,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--ticker-pattern",
         default="data/*.csv",
-        help="Glob pattern for CSV files that contain a 'ticker' column.",
+        help="File path, directory, or glob for CSVs containing a 'ticker' column.",
     )
     parser.add_argument(
         "--fetch-output-dir",
         default="data",
         help="Directory where fetched info and history files should be saved.",
     )
+
+    ## Ranking arguments
     parser.add_argument(
         "--rank-etfs",
         action="store_true",
@@ -101,6 +108,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=["Sharpe_Ratio", "Annualized_Return_%", "Volatility_%"],
         help="List of metrics to display when showing rankings.",
     )
+    parser.add_argument(
+        "--rank-predictive-metrics",
+        action="store_true",
+        help="Rank ETFs using predictive metrics from the modeling module.",
+    )
+
+    ## Modeling arguments
     parser.add_argument(
         "--model-etf-returns",
         action="store_true",
@@ -138,6 +152,7 @@ def main() -> None:
         data_dir=args.etf_dir,
         output_file=args.rankings_output,
         metrics_to_display=tuple(args.display_metrics),
+        rank_predictive_metrics=args.rank_predictive_metrics,
     )
     etf_returns_modeling_config = ETFReturnModelingConfig(
         data_dir=args.etf_dir,

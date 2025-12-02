@@ -21,6 +21,7 @@ class RankingConfig:
         "Annualized_Return_%",
         "Volatility_%",
     )
+    rank_predictive_metrics: bool = False
 
 
 @dataclass

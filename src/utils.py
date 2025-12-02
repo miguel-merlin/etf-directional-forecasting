@@ -6,21 +6,31 @@ from datetime import datetime
 from pathlib import Path
 
 
+def _collect_csv_files(source: str) -> list[str]:
+    """Return CSV paths from a file, directory, or glob pattern."""
+    path = Path(source)
+    if path.is_file():
+        return [str(path)]
+    if path.is_dir():
+        return [str(p) for p in sorted(path.glob("*.csv"))]
+    return sorted(glob.glob(source))
+
+
 def parse_tickers_from_csvs(file_pattern="*.csv"):
     """
     Parse ticker names from CSV files.
 
     Parameters:
-    file_pattern (str): Glob pattern to match CSV files (default: '*.csv')
+    file_pattern (str): File path, directory, or glob pattern for CSV files.
 
     Returns:
     list: List of unique ticker names
     """
     all_tickers = []
-    csv_files = glob.glob(file_pattern)
+    csv_files = _collect_csv_files(file_pattern)
 
     if not csv_files:
-        print(f"No CSV files found matching pattern: {file_pattern}")
+        print(f"No CSV files found matching: {file_pattern}")
         return []
 
     print(f"Found {len(csv_files)} CSV file(s)")
