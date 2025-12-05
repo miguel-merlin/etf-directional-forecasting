@@ -72,15 +72,25 @@ def fetch_yfinance_data(tickers, output_dir="data"):
     os.makedirs(output_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    clean_tickers = sorted(list(set([t.split()[0].strip() for t in tickers])))
+    existing_files = {p.stem for p in Path(output_dir).glob("*.csv")}
+    tickers_to_fetch = [t for t in clean_tickers if t not in existing_files]
+
+    skipped_count = len(clean_tickers) - len(tickers_to_fetch)
+    if skipped_count > 0:
+        print(f"Skipping {skipped_count} tickers already present in '{output_dir}'")
+
+    if not tickers_to_fetch:
+        print("No new tickers to fetch.")
+        return pd.DataFrame(), {}
 
     all_info = []
     all_history = {}
 
-    print(f"\nFetching data for {len(tickers)} tickers...")
+    print(f"\nFetching data for {len(tickers_to_fetch)} tickers...")
 
-    for i, ticker in enumerate(tickers, 1):
-        print(f"[{i}/{len(tickers)}] Fetching {ticker}...", end=" ")
-        ticker = ticker.split()[0]
+    for i, ticker in enumerate(tickers_to_fetch, 1):
+        print(f"[{i}/{len(tickers_to_fetch)}] Fetching {ticker}...", end=" ")
 
         try:
             stock = yf.Ticker(ticker)
@@ -105,14 +115,11 @@ def fetch_yfinance_data(tickers, output_dir="data"):
         print(f"\n✓ Ticker info saved to: {info_file}")
 
     if all_history:
-        history_dir = os.path.join(output_dir, f"individual_histories_{timestamp}")
-        os.makedirs(history_dir, exist_ok=True)
-
         for ticker, hist in all_history.items():
-            ticker_file = os.path.join(history_dir, f"{ticker}.csv")
+            ticker_file = os.path.join(output_dir, f"{ticker}.csv")
             hist.to_csv(ticker_file)
 
-        print(f"✓ Individual histories saved to: {history_dir}/")
+        print(f"✓ Individual histories saved to: {output_dir}/")
 
     print("\n✓ All data fetched successfully!")
 
