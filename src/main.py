@@ -5,7 +5,7 @@ import pandas as pd
 from utils import parse_tickers_from_csvs, fetch_yfinance_data, load_etf_data_from_csvs
 from ranking import ETFRanker
 from modeling import ETFReturnPredictor
-from config import FetchConfig, RankingConfig, ETFReturnModelingConfig
+from config import FetchConfig, RankingConfig, ETFReturnModelingConfig, ModelType
 
 
 def run_fetch_workflow(config: FetchConfig) -> None:
@@ -137,6 +137,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=5,
         help="Number of bins to use when discretizing metrics during modeling.",
     )
+    parser.add_argument(
+        "--model-type",
+        choices=[mt.value for mt in ModelType],
+        default=ModelType.ENUMERATION.value,
+        help="Modeling approach to use when estimating ETF returns.",
+    )
 
     return parser.parse_args(argv)
 
@@ -159,6 +165,7 @@ def main() -> None:
         plot_dir=args.model_plot_dir,
         target_return_period_months=args.model_target_months,
         n_bins=args.model_bins,
+        model=ModelType(args.model_type),
     )
 
     if args.fetch_data:

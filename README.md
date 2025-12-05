@@ -66,7 +66,8 @@ The modeling workflow estimates the probability that each ETF posts a positive f
 python -m src.main --model-etf-returns \
   --etf-dir data/etfs \
   --model-target-months 6 \
-  --model-plot-dir results/plots
+  --model-plot-dir results/plots \
+  --model-type enumeration
 ```
 
 What you get:
@@ -93,6 +94,7 @@ All returns assume trading days and use percentages unless noted otherwise.
 - Adjust the risk-free rate in `src/metrics.py` to match your assumptions.
 - Extend `display_rankings` if you need additional printouts or prefer different sort orders.
 - Use `--model-target-months` and `--model-plot-dir` to tune the return-modeling workflow without touching the source.
+- Switch `--model-type` between `enumeration` (default) and `logistic` when experimenting with different modeling approaches.
 
 ## Troubleshooting
 - **`No CSV files found`** – Ensure the directory exists and the files carry the `.csv` extension.
