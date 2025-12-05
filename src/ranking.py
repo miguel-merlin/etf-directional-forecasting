@@ -42,7 +42,7 @@ class ETFRanker:
         max_drawdown = drawdown.min() * 100
 
         current_year = df["Date"].iloc[-1].year
-        ytd_data = df[df["Date"].dt.year == current_year]
+        ytd_data = df[df["Date"].dt.year == current_year]  # type: ignore
         if len(ytd_data) > 0:
             ytd_return = (
                 ytd_data["Close"].iloc[-1] / ytd_data["Close"].iloc[0] - 1

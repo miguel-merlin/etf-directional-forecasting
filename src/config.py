@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Sequence
+from enum import Enum
 
 
 @dataclass
@@ -24,6 +25,13 @@ class RankingConfig:
     rank_predictive_metrics: bool = False
 
 
+class ModelType(Enum):
+    """Model types for ETF return modeling."""
+
+    ENUMERATION = "enumeration"
+    LOGISTIC = "logistic"
+
+
 @dataclass
 class ETFReturnModelingConfig:
     """Configuration for modelling ETF returns."""
@@ -32,3 +40,4 @@ class ETFReturnModelingConfig:
     plot_dir: str = "results/plots"
     target_return_period_months: int = 6
     n_bins: int = 5
+    model: ModelType = ModelType.ENUMERATION
