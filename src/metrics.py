@@ -146,7 +146,7 @@ class UpDownCaptureMetric(BaseMetric):
         return df
 
 
-## mdd/vol
+## mddvol/
 
 
 def get_metrics(

@@ -43,7 +43,7 @@ def run_ranking_workflow(config: RankingConfig) -> None:
 def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
     """Model ETF returns based on historical data and features."""
     etf_price_data = load_etf_data_from_csvs(config.data_dir)
-    predictor = ETFReturnPredictor(etf_price_data)
+    predictor = ETFReturnPredictor(etf_price_data, plot_dir=config.plot_dir, model_type=config.model.value)
     target = predictor.create_target_variable(months=config.target_return_period_months)
     print("Target variable created. Shape:", target.shape)
     print(f"Overall positive rate: {target.mean().mean():.3f}")
@@ -52,18 +52,21 @@ def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
     print(f"\nFeatures calculated. Shape: {features.shape}")
     print(f"Number of metrics: {len([c for c in features.columns if c != 'etf'])}")
 
-    print("\nAnalyzing all metrics...")
-    summary = predictor.analyze_all_metrics(n_bins=config.n_bins)
+    predictor.model_etf_returns()
 
-    print("\n" + "=" * 80)
-    print("TOP 10 PREDICTIVE METRICS (by Information Gain)")
-    print("=" * 80)
+    if config.model == ModelType.ENUMERATION:
+        summary = predictor.metric_summary
+        print("\n" + "=" * 80)
+        print("TOP 10 PREDICTIVE METRICS (by Information Gain)")
+        print("=" * 80)
 
-    print("\n\nGenerating visualizations for all metrics...")
-    predictor.plot_top_metrics(summary=summary)
+        print("\n\nGenerating visualizations for all metrics...")
+        predictor.plot_top_metrics(summary=summary)
 
-    print("\n\nSaving probability plots for each metric (with bin ranges and KL)")
-    predictor.plot_metric_probabilities_for_metrics(summary["metric"].tolist())
+        print("\n\nSaving probability plots for each metric (with bin ranges and KL)")
+        predictor.plot_metric_probabilities_for_metrics(summary["metric"].tolist())
+    elif config.model == ModelType.LOGISTIC:
+        print("\nLogistic Regression modeling complete. No specific plots generated for individual features.")
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

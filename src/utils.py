@@ -72,8 +72,8 @@ def fetch_yfinance_data(tickers, output_dir="data"):
     os.makedirs(output_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    clean_tickers = sorted(list(set([t.split()[0].strip() for t in tickers])))
-    existing_files = {p.stem for p in Path(output_dir).glob("*.csv")}
+    clean_tickers = sorted(list(set([t.split()[0].strip().upper() for t in tickers])))
+    existing_files = {p.stem.upper() for p in Path(output_dir).glob("*.csv")}
     tickers_to_fetch = [t for t in clean_tickers if t not in existing_files]
 
     skipped_count = len(clean_tickers) - len(tickers_to_fetch)

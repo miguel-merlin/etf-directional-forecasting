@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy import stats
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
 
 from metrics import BaseMetric, get_metrics
 
@@ -30,7 +32,7 @@ class ETFReturnPredictor:
     Models P(I=1 | metric) where I indicates positive 6-month return.
     """
 
-    def __init__(self, price_data: pd.DataFrame, plot_dir: str = "results/plots"):
+    def __init__(self, price_data: pd.DataFrame, plot_dir: str = "results/plots", model_type: str = "enumeration"):
         """
         Initialize with price data.
 
@@ -45,6 +47,8 @@ class ETFReturnPredictor:
         self.target = pd.DataFrame()
         self.results = {}
         self.metric_summary = pd.DataFrame()
+        self.logistic_model = None  # Initialize logistic model
+        self.model_type = model_type # Store the model type
 
         if not os.path.exists(plot_dir):
             os.makedirs(plot_dir)
@@ -154,6 +158,54 @@ class ETFReturnPredictor:
                     )
 
         return features_flat, target_flat
+
+    def train_logistic_regression_model(self, features: pd.DataFrame, target: pd.Series):
+        """
+        Trains a logistic regression model.
+
+        Parameters:
+        -----------
+        features : pd.DataFrame
+            DataFrame of features.
+        target : pd.Series
+            Series of target variable (0 or 1).
+        """
+        self.logistic_model = LogisticRegression(solver="liblinear", random_state=42)
+        # Drop rows where target is NaN
+        combined_data = pd.concat([features, target], axis=1).dropna(subset=[target.name])
+        X = combined_data[features.columns]
+        y = combined_data[target.name]
+
+        if not X.empty and not y.empty:
+            self.logistic_model.fit(X, y)
+            print("Logistic Regression model trained successfully.")
+        else:
+            print("No valid data to train the Logistic Regression model.")
+            self.logistic_model = None
+
+    def predict_logistic_regression(self, features: pd.DataFrame) -> pd.Series:
+        """
+        Predicts probabilities using the trained logistic regression model.
+
+        Parameters:
+        -----------
+        features : pd.DataFrame
+            DataFrame of features for prediction.
+
+        Returns:
+        --------
+        pd.Series
+            Predicted probabilities of the positive class.
+        """
+        if self.logistic_model:
+            # Ensure features have the same columns as the training data
+            # For simplicity, we assume features are already aligned.
+            # In a real scenario, you might need to handle missing features or feature scaling.
+            predictions = self.logistic_model.predict_proba(features)[:, 1]
+            return pd.Series(predictions, index=features.index)
+        else:
+            print("Logistic Regression model not trained.")
+            return pd.Series([], dtype=float)
 
     def estimate_conditional_probability(
         self,
@@ -366,6 +418,45 @@ class ETFReturnPredictor:
         ]
 
         return ranked_metrics
+
+    def model_etf_returns(self):
+        """
+        Orchestrates the modeling process based on the configured model_type.
+        """
+        if self.model_type == "enumeration":
+            print("Running enumeration-based analysis...")
+            self.analyze_all_metrics()
+        elif self.model_type == "logistic":
+            print("Running logistic regression modeling...")
+            if self.features.empty or self.target.empty:
+                print("Features or target not calculated. Please run calculate_features and create_target_variable first.")
+                return
+
+            # Prepare data for logistic regression
+            features_flat = self.features.copy()
+            target_flat = self.target.stack().reset_index(level=0, drop=True) # Align target to features index
+
+            # Drop rows with NaN values in features or target
+            combined_data = pd.concat([features_flat, target_flat.rename('target')], axis=1).dropna()
+            X = combined_data.drop(columns=['target', 'etf']) # 'etf' is an identifier, not a feature
+            y = combined_data['target']
+
+            if X.empty or y.empty:
+                print("No valid data after cleaning for logistic regression.")
+                return
+
+            # Train the model
+            self.train_logistic_regression_model(X, y)
+
+            # If model trained, make predictions
+            if self.logistic_model:
+                predictions = self.predict_logistic_regression(X)
+                self.results['logistic_regression_predictions'] = predictions
+                print("Logistic regression predictions generated.")
+            else:
+                print("Logistic regression model could not be trained, no predictions generated.")
+        else:
+            print(f"Unknown model type: {self.model_type}")
 
     def _prepare_probability_plot_data(
         self, metric_name: str
