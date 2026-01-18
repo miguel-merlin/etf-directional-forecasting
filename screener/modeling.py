@@ -32,7 +32,12 @@ class ETFReturnPredictor:
     Models P(I=1 | metric) where I indicates positive 6-month return.
     """
 
-    def __init__(self, price_data: pd.DataFrame, plot_dir: str = "results/plots", model_type: str = "enumeration"):
+    def __init__(
+        self,
+        price_data: pd.DataFrame,
+        plot_dir: str = "results/plots",
+        model_type: str = "enumeration",
+    ):
         """
         Initialize with price data.
 
@@ -48,7 +53,7 @@ class ETFReturnPredictor:
         self.results = {}
         self.metric_summary = pd.DataFrame()
         self.logistic_model = None  # Initialize logistic model
-        self.model_type = model_type # Store the model type
+        self.model_type = model_type  # Store the model type
 
         if not os.path.exists(plot_dir):
             os.makedirs(plot_dir)
@@ -107,6 +112,10 @@ class ETFReturnPredictor:
 
         # Combine all ETFs
         self.features = pd.concat(features_dict.values(), axis=0)
+
+        # Robust preprocessing: Replace infinite values with NaN to avoid downstream errors
+        self.features.replace([np.inf, -np.inf], np.nan, inplace=True)
+
         return self.features
 
     def discretize_metric(
@@ -124,6 +133,12 @@ class ETFReturnPredictor:
         method : str
             'quantile' for equal-frequency bins or 'uniform' for equal-width bins
         """
+        # Ensure no infinite values before discretization
+        metric_values = metric_values.replace([np.inf, -np.inf], np.nan).dropna()
+
+        if metric_values.empty:
+            return pd.Series(dtype=float)
+
         if method == "quantile":
             return pd.qcut(metric_values, q=n_bins, labels=False, duplicates="drop")
         else:
@@ -159,7 +174,9 @@ class ETFReturnPredictor:
 
         return features_flat, target_flat
 
-    def train_logistic_regression_model(self, features: pd.DataFrame, target: pd.Series):
+    def train_logistic_regression_model(
+        self, features: pd.DataFrame, target: pd.Series
+    ):
         """
         Trains a logistic regression model.
 
@@ -171,14 +188,23 @@ class ETFReturnPredictor:
             Series of target variable (0 or 1).
         """
         self.logistic_model = LogisticRegression(solver="liblinear", random_state=42)
-        # Drop rows where target is NaN
-        combined_data = pd.concat([features, target], axis=1).dropna(subset=[target.name])
+
+        # Robust preprocessing: Replace infinite values with NaN
+        combined_data = pd.concat([features, target], axis=1).replace(
+            [np.inf, -np.inf], np.nan
+        )
+
+        # Drop rows where target or features are NaN
+        combined_data = combined_data.dropna()
+
         X = combined_data[features.columns]
         y = combined_data[target.name]
 
         if not X.empty and not y.empty:
             self.logistic_model.fit(X, y)
-            print("Logistic Regression model trained successfully.")
+            print(
+                f"Logistic Regression model trained successfully on {len(X)} samples."
+            )
         else:
             print("No valid data to train the Logistic Regression model.")
             self.logistic_model = None
@@ -198,10 +224,10 @@ class ETFReturnPredictor:
             Predicted probabilities of the positive class.
         """
         if self.logistic_model:
-            # Ensure features have the same columns as the training data
-            # For simplicity, we assume features are already aligned.
-            # In a real scenario, you might need to handle missing features or feature scaling.
-            predictions = self.logistic_model.predict_proba(features)[:, 1]
+            # Handle potential NaNs/Infs in prediction data
+            X = features.replace([np.inf, -np.inf], np.nan).fillna(0)
+
+            predictions = self.logistic_model.predict_proba(X)[:, 1]
             return pd.Series(predictions, index=features.index)
         else:
             print("Logistic Regression model not trained.")
@@ -235,6 +261,9 @@ class ETFReturnPredictor:
             on=["date", "etf"],
             how="inner",
         )
+
+        # Robust preprocessing: Replace infinite values with NaN before dropping
+        merged[metric_name] = merged[metric_name].replace([np.inf, -np.inf], np.nan)
         merged = merged.dropna(subset=[metric_name, "target"])
 
         if len(merged) == 0:
@@ -382,9 +411,7 @@ class ETFReturnPredictor:
 
         return results_df
 
-    def get_top_metrics(
-        self, top_n: Optional[int] = None
-    ) -> List[RankedMetric]:
+    def get_top_metrics(self, top_n: Optional[int] = None) -> List[RankedMetric]:
         """
         Return the ranked metric summaries as dataclass instances.
 
@@ -429,17 +456,23 @@ class ETFReturnPredictor:
         elif self.model_type == "logistic":
             print("Running logistic regression modeling...")
             if self.features.empty or self.target.empty:
-                print("Features or target not calculated. Please run calculate_features and create_target_variable first.")
+                print(
+                    "Features or target not calculated. Please run calculate_features and create_target_variable first."
+                )
                 return
 
             # Prepare data for logistic regression
             features_flat = self.features.copy()
-            target_flat = self.target.stack().reset_index(level=0, drop=True) # Align target to features index
+            target_flat = self.target.stack().reset_index(
+                level=0, drop=True
+            )  # Align target to features index
 
             # Drop rows with NaN values in features or target
-            combined_data = pd.concat([features_flat, target_flat.rename('target')], axis=1).dropna()
-            X = combined_data.drop(columns=['target', 'etf']) # 'etf' is an identifier, not a feature
-            y = combined_data['target']
+            combined_data = pd.concat([features_flat, target_flat.rename("target")], axis=1).dropna()  # type: ignore
+            X = combined_data.drop(
+                columns=["target", "etf"]
+            )  # 'etf' is an identifier, not a feature
+            y = combined_data["target"]
 
             if X.empty or y.empty:
                 print("No valid data after cleaning for logistic regression.")
@@ -451,10 +484,12 @@ class ETFReturnPredictor:
             # If model trained, make predictions
             if self.logistic_model:
                 predictions = self.predict_logistic_regression(X)
-                self.results['logistic_regression_predictions'] = predictions
+                self.results["logistic_regression_predictions"] = predictions
                 print("Logistic regression predictions generated.")
             else:
-                print("Logistic regression model could not be trained, no predictions generated.")
+                print(
+                    "Logistic regression model could not be trained, no predictions generated."
+                )
         else:
             print(f"Unknown model type: {self.model_type}")
 

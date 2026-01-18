@@ -63,7 +63,7 @@ If no files are found you will see an error message such as `No CSV files found 
 The modeling workflow estimates the probability that each ETF posts a positive forward return (6 months ahead by default) based on the technical metrics produced in `src/modeling.py`.
 
 ```bash
-python -m src.main --model-etf-returns \
+python -m screener.main --model-etf-returns \
   --etf-dir data/etfs \
   --model-target-months 6 \
   --model-plot-dir results/plots \
@@ -90,8 +90,8 @@ All returns assume trading days and use percentages unless noted otherwise.
 - **Data_Points** – Total number of records processed for that ETF.
 
 ## Customizing
-- Change `data/etfs` inside `src/main.py` if your histories live elsewhere.
-- Adjust the risk-free rate in `src/metrics.py` to match your assumptions.
+- Change `data/etfs` inside `screener/main.py` if your histories live elsewhere.
+- Adjust the risk-free rate in `screener/metrics.py` to match your assumptions.
 - Extend `display_rankings` if you need additional printouts or prefer different sort orders.
 - Use `--model-target-months` and `--model-plot-dir` to tune the return-modeling workflow without touching the source.
 - Switch `--model-type` between `enumeration` (default) and `logistic` when experimenting with different modeling approaches.
