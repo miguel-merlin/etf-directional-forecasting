@@ -12,11 +12,11 @@ ETF screener that consumes locally stored price histories, computes common risk/
 ## Repository layout
 | Path | Purpose |
 | --- | --- |
-| `src/main.py` | Entry point that ranks ETFs stored under `data/etfs`. |
-| `src/metrics.py` | Calculates portfolio statistics and prints the rankings table. |
-| `src/modeling.py` | Builds signal features, models forward returns, and plots conditional probabilities. |
-| `src/config.py` | Typed configuration containers shared across the CLI workflows. |
-| `src/utils.py` | Helper functions for parsing tickers and downloading new price histories. |
+| `screener/main.py` | Entry point that ranks ETFs stored under `data/etfs`. |
+| `screener/metrics.py` | Calculates portfolio statistics and prints the rankings table. |
+| `screener/modeling.py` | Builds signal features, models forward returns, and plots conditional probabilities. |
+| `screener/config.py` | Typed configuration containers shared across the CLI workflows. |
+| `screener/utils.py` | Helper functions for parsing tickers and downloading new price histories. |
 | `data/` | Sample output plus your downloadable price histories. Each ETF should be its own CSV inside `data/etfs/`. |
 
 ## Requirements
@@ -34,7 +34,7 @@ The screener expects a CSV per ETF stored inside `data/etfs/`. Each file should 
 1. **Provide your own histories.** Drop the CSVs under `data/etfs/` with filenames that match the ticker (for example `SPY.csv`).
 2. **Let the helper utilities fetch them.**
    ```python
-   from src.utils import parse_tickers_from_csvs, fetch_yfinance_data
+   from screener.utils import parse_tickers_from_csvs, fetch_yfinance_data
 
    tickers = parse_tickers_from_csvs("data/screener/*.csv")  # glob for the CSVs you care about
    info_df, histories = fetch_yfinance_data(tickers, output_dir="data")
@@ -45,22 +45,22 @@ The screener expects a CSV per ETF stored inside `data/etfs/`. Each file should 
 ## Running the screener
 The CLI exposes one flag per feature so you can fetch data, rank ETFs, or do both in a single command.
 
-- `python -m src.main --rank-etfs` – default behavior; omitting the flag does the same.
-- `python -m src.main --fetch-data` – parse tickers via `--ticker-pattern` (default `data/*.csv`) and save downloads under `--fetch-output-dir` (default `data`). The pattern now accepts direct CSV paths (e.g., `data/watchlist.csv`) in addition to directories or globs, so you can run the fetcher on a single watchlist file.
-- `python -m src.main --rank-etfs --display-metrics Sharpe_Ratio Annualized_Return_%` – pass custom metrics to print, and `--rankings-output`/`--etf-dir` to change file locations.
-- `python -m src.main --model-etf-returns` – compute predictive features, evaluate their power against a forward return target, and save plots to `--model-plot-dir` (default `results/plots`).
+- `python -m screener.main --rank-etfs` – default behavior; omitting the flag does the same.
+- `python -m screener.main --fetch-data` – parse tickers via `--ticker-pattern` (default `data/*.csv`) and save downloads under `--fetch-output-dir` (default `data`). The pattern now accepts direct CSV paths (e.g., `data/watchlist.csv`) in addition to directories or globs, so you can run the fetcher on a single watchlist file.
+- `python -m screener.main --rank-etfs --display-metrics Sharpe_Ratio Annualized_Return_%` – pass custom metrics to print, and `--rankings-output`/`--etf-dir` to change file locations.
+- `python -m screener.main --model-etf-returns` – compute predictive features, evaluate their power against a forward return target, and save plots to `--model-plot-dir` (default `results/plots`).
 - Combine both flags to fetch data and immediately rank the refreshed histories.
 
 When ranking runs it will:
 1. Read every CSV in `data/etfs/` (or the directory you supplied).
-2. Compute the metrics defined in `src/metrics.py`.
+2. Compute the metrics defined in `screener/metrics.py`.
 3. Print ranked tables for each metric you requested.
 4. Export the consolidated results to `etf_rankings.csv` by default.
 
 If no files are found you will see an error message such as `No CSV files found in data/etfs`.
 
 ## Modeling ETF returns
-The modeling workflow estimates the probability that each ETF posts a positive forward return (6 months ahead by default) based on the technical metrics produced in `src/modeling.py`.
+The modeling workflow estimates the probability that each ETF posts a positive forward return (6 months ahead by default) based on the technical metrics produced in `screener/modeling.py`.
 
 ```bash
 python -m screener.main --model-etf-returns \
