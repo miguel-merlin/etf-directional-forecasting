@@ -19,6 +19,10 @@ ETF screener that consumes locally stored price histories, computes common risk/
 | `screener/utils.py` | Helper functions for parsing tickers and downloading new price histories. |
 | `data/` | Sample output plus your downloadable price histories. Each ETF should be its own CSV inside `data/etfs/`. |
 
+## Documentation
+- [Architecture & Pipeline](docs/architecture.md): Detailed overview of the system design and data flow.
+- [Theoretical Framework](docs/overview.md): Explanation of the financial theory and statistical methods used.
+
 ## Requirements
 Install the Python dependencies:
 
