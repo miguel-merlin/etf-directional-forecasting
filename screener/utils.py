@@ -4,7 +4,7 @@ import os
 import yfinance as yf
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 import pandas_datareader.data as web
 
 

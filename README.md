@@ -31,9 +31,9 @@ ETF screener that consumes locally stored price histories, computes common risk/
 Install the Python dependencies:
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 ## Preparing the data
@@ -63,7 +63,7 @@ The CLI exposes flags for fetching data, ranking ETFs, and modeling returns.
 The modeling workflow estimates the probability of positive forward returns based on technical and macro indicators.
 
 ```bash
-python -m screener.main --model-etf-returns \
+python3 -m screener.main --model-etf-returns \
   --etf-dir data/etfs \
   --macro-dir data/macro \
   --model-target-months 6 \

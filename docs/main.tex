@@ -1,0 +1,684 @@
+\documentclass{article}
+
+% Language setting
+\usepackage[english]{babel}
+
+% Set page size and margins
+\usepackage[letterpaper,top=2cm,bottom=2cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
+
+% Useful packages
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+
+\title{ETFs Returns Modeling:\\
+Binned Probability Curves for 6-Month Forward Returns}
+\author{Miguel Merlin}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+    This document presents a simple but powerful framework for understanding how cross-sectional and time-series metrics of Exchange-Traded Funds (ETFs) relate to the probability of achieving a positive 6-month forward return. Instead of directly predicting future returns as a continuous variable, we model a binary indicator $I_t$ which records whether the forward return over the next six months is positive. For a given metric $M_t$ (such as volatility, drawdown, momentum, or Sharpe ratio), we estimate the conditional probability
+    \[
+        P(I_t = 1 \mid M_t = m)
+    \]
+    in a robust and interpretable way by discretizing $M_t$ into bins and computing empirical success rates within each bin. We complement these estimates with Wilson score confidence intervals to quantify statistical uncertainty, and with scalar summary statistics---information gain, probability range, and chi-square tests---to rank metrics by their predictive power. The resulting probability curves and statistics provide a transparent way to evaluate which metrics meaningfully shift the odds of a positive 6-month return for ETFs.
+\end{abstract}
+
+\section{Introduction}
+
+A central question in quantitative portfolio analysis is whether certain characteristics (or ``metrics'') of an asset today carry information about its future performance. For ETFs, examples of such metrics include trailing volatility, maximum drawdown, past returns over various horizons, and risk-adjusted measures such as the Sharpe ratio.
+
+In this work, we focus on the following question:
+\begin{quote}
+    \emph{Given the value of a metric $M_t$ at time $t$, how does it affect the probability that the ETF realizes a positive 6-month forward return?}
+\end{quote}
+Formally, for an ETF with price process $(P_t)$, we define the forward 6-month return as
+\[
+    R_t^{(6m)} = \frac{P_{t+126}}{P_t} - 1,
+\]
+where 126 trading days is used as an approximation to 6 calendar months. We then define a binary outcome
+\[
+    I_t = \mathbf{1}\{R_t^{(6m)} > 0\},
+\]
+which takes value 1 if the 6-month return is positive and 0 otherwise.
+
+Rather than predicting $R_t^{(6m)}$ directly, we study the conditional probability
+\[
+    P(I_t = 1 \mid M_t = m),
+\]
+where $M_t$ is a metric computed at time $t$. Directly estimating this quantity as a function of the continuous argument $m$ can be difficult and unstable, especially in finite samples. To address this, we discretize $M_t$ into bins and work with empirical conditional probabilities within those bins.
+
+The rest of this document describes the methodology in detail:
+\begin{itemize}
+    \item Section~\ref{sec:setup} formalizes the data and notation.
+    \item Section~\ref{sec:binning} explains the binning procedure and construction of empirical probabilities.
+    \item Section~\ref{sec:uncertainty} introduces Wilson score confidence intervals to quantify uncertainty.
+    \item Section~\ref{sec:informativeness} defines information gain and the chi-square test as measures of predictive power.
+    \item Section~\ref{sec:pipeline} describes the complete pipeline and illustrates how to rank metrics.
+    \item Section~\ref{sec:extensions} discusses potential extensions and connections to more complex models.
+\end{itemize}
+
+\section{Modeling Setup}
+\label{sec:setup}
+
+\subsection{Forward 6-Month Return and Indicator Variable}
+
+Let $P_t$ denote the adjusted closing price of a given ETF at trading day $t$. We define the (approximate) 6-month forward return as
+\begin{equation}
+    R_t^{(6m)} = \frac{P_{t+126}}{P_t} - 1,
+    \label{eq:forward-return}
+\end{equation}
+where 126 trading days stands in for six months.
+
+We are not directly modeling $R_t^{(6m)}$ as a continuous variable. Instead, we encode the sign of this return as a binary indicator:
+\begin{equation}
+    I_t = \mathbf{1}\{R_t^{(6m)} > 0\} =
+    \begin{cases}
+        1, & \text{if } R_t^{(6m)} > 0, \\
+        0, & \text{otherwise.}
+    \end{cases}
+    \label{eq:indicator}
+\end{equation}
+This formulation turns the problem into a probabilistic classification task: we are interested in the probability that the forward return is positive.
+
+\subsection{Metrics of Interest}
+
+Let $M_t$ be a real-valued metric computed at time $t$ from the ETF's historical price process, returns, or other features. Examples include:
+\begin{itemize}
+    \item \textbf{Rolling volatility}, e.g.\ 252-day annualized volatility.
+    \item \textbf{Maximum drawdown}, e.g.\ 252-day trailing max drawdown.
+    \item \textbf{Momentum}, e.g.\ 12-month return skipping the most recent month.
+    \item \textbf{Sharpe ratio}, e.g.\ 252-day return divided by volatility.
+\end{itemize}
+
+Our goal is to understand how the value of $M_t$ influences the probability that $I_t = 1$. More precisely, we would like to characterize the function
+\begin{equation}
+    m \mapsto P(I_t = 1 \mid M_t = m).
+    \label{eq:conditional-prob-function}
+\end{equation}
+
+\subsection{Why Binning Is Necessary}
+
+In finite data, we observe at most one outcome $I_t$ for each observed metric value $M_t = m$. Estimating the full conditional probability function \eqref{eq:conditional-prob-function} at the level of exact $m$ is impossible without imposing a parametric model (e.g.\ logistic regression) or a strong smoothing assumption.
+
+Instead, we discretize the real line into a finite set of bins and study
+\[
+    P(I_t = 1 \mid M_t \in \mathcal{B}_b),
+\]
+for each bin $\mathcal{B}_b$, $b = 0, \dots, B-1$. This yields a stepwise approximation to \eqref{eq:conditional-prob-function}, which is:
+\begin{itemize}
+    \item \textbf{Non-parametric}: it does not assume a particular functional form.
+    \item \textbf{Data-efficient}: each bin aggregates many observations.
+    \item \textbf{Interpretable}: each bin corresponds to a range of metric values.
+\end{itemize}
+
+\section{Binning the Metric}
+\label{sec:binning}
+
+\subsection{Bin Definitions}
+
+We partition the real line into $B$ bins:
+\begin{equation}
+    \mathbb{R} = \bigcup_{b=0}^{B-1} \mathcal{B}_b, \quad
+    \mathcal{B}_b = [a_b, a_{b+1}),
+    \label{eq:bins}
+\end{equation}
+where
+\[
+    a_0 < a_1 < \dots < a_B.
+\]
+
+Two practical choices for the bin boundaries $(a_b)$ are:
+\begin{itemize}
+    \item \textbf{Quantile bins}: the $\{a_b\}$ are chosen such that each bin contains (approximately) the same number of observations of $M_t$. For example, $B=5$ (quintiles) or $B=10$ (deciles).
+    \item \textbf{Uniform-width bins}: the real line (or a relevant range of the metric) is divided into intervals of equal width.
+\end{itemize}
+
+Quantile bins are often preferable because they ensure reasonably balanced sample sizes in each $\mathcal{B}_b$, which is beneficial for computing stable frequency estimates and statistical tests.
+
+\subsection{Assigning Observations to Bins}
+
+For each observation at time $t$, we compute the metric $M_t$ and determine the corresponding bin index:
+\begin{equation}
+    \text{bin}_t = b \quad \text{if } M_t \in \mathcal{B}_b.
+    \label{eq:bin-index}
+\end{equation}
+
+We then group all outcomes $I_t$ by their bin index. For a particular bin $b$, define:
+\begin{align}
+    n_b & = \#\{t : \text{bin}_t = b\}
+    = \text{number of observations falling in bin } b, \label{eq:nb} \\
+    s_b & = \sum_{\substack{t: \text{bin}_t = b}} I_t
+    = \text{number of positive outcomes ($I_t = 1$) in bin } b.
+    \label{eq:sb}
+\end{align}
+
+\subsection{Empirical Conditional Probabilities}
+
+The natural estimator of the conditional probability $P(I_t = 1 \mid M_t \in \mathcal{B}_b)$ is the empirical fraction of positive outcomes in that bin:
+\begin{equation}
+    \hat{p}_b = \frac{s_b}{n_b}.
+    \label{eq:phat}
+\end{equation}
+
+Interpreting $\hat{p}_b$:
+\begin{itemize}
+    \item $\hat{p}_b$ is the fraction of times the 6-month forward return was positive among all historical instances where the metric $M_t$ fell into bin $\mathcal{B}_b$.
+    \item If the bins are ordered from low metric values to high metric values, the sequence $(\hat{p}_0, \ldots, \hat{p}_{B-1})$ describes how the probability of a positive 6-month return changes as the metric increases.
+\end{itemize}
+
+\section{Base Rate and Conditional Probabilities}
+\label{sec:base-rate}
+
+\subsection{Overall Base Rate}
+
+Before conditioning on the metric, it is useful to compute the overall positive rate across all observations. Let
+\begin{equation}
+    \bar{p} = \frac{\sum_t I_t}{\text{total number of observations}}.
+    \label{eq:base-rate}
+\end{equation}
+
+This quantity can be interpreted as the unconditional probability
+\[
+    \bar{p} \approx P(I_t = 1).
+\]
+It serves as a baseline with which we compare the bin-specific conditional probabilities $\hat{p}_b$.
+
+\subsection{Interpretation}
+
+The comparison between $\hat{p}_b$ and $\bar{p}$ is central:
+\begin{itemize}
+    \item If $\hat{p}_b \approx \bar{p}$ for all $b$, then the metric appears to carry little predictive information about the sign of the 6-month forward return. Regardless of the metric value, the probability of a positive outcome remains near the unconditional base rate.
+    \item If the $\hat{p}_b$ vary substantially with $b$ (e.g.\ ranging from $0.50$ to $0.75$), then the metric meaningfully shifts the odds of a positive return. Higher or lower values of the metric may correspond to noticeably different probability regimes.
+\end{itemize}
+
+As an example, suppose we use $B = 5$ equal-count (quintile) bins and obtain the following estimates:
+\begin{center}
+    \begin{tabular}{c|c}
+        Bin $b$                   & $\hat{p}_b$ \\\hline
+        0 (lowest metric values)  & 0.50        \\
+        1                         & 0.55        \\
+        2                         & 0.60        \\
+        3                         & 0.65        \\
+        4 (highest metric values) & 0.70        \\
+    \end{tabular}
+\end{center}
+If the overall base rate is, say, $\bar{p} = 0.58$, then we see that low metric values (bin 0) underperform the base rate, whereas high metric values (bin 4) materially exceed it. This pattern suggests that higher values of the metric are associated with a higher probability of a positive 6-month return.
+
+\section{Quantifying Uncertainty: Wilson Score Intervals}
+\label{sec:uncertainty}
+
+\subsection{Motivation}
+
+Each bin-specific estimate $\hat{p}_b$ is based on a finite sample of size $n_b$. The reliability of $\hat{p}_b$ depends strongly on $n_b$:
+\begin{itemize}
+    \item If $n_b$ is large, we can expect $\hat{p}_b$ to be a precise estimate of $P(I_t = 1 \mid M_t \in \mathcal{B}_b)$.
+    \item If $n_b$ is small, sampling variability is large, and $\hat{p}_b$ may be noisy.
+\end{itemize}
+
+To communicate this uncertainty, we compute a confidence interval for each $\hat{p}_b$. Rather than using a simple normal approximation, we employ the \emph{Wilson score interval} for a binomial proportion, which generally has better coverage properties, especially when sample sizes are moderate and probabilities are not near 0.5.
+
+\subsection{Wilson Score Formula}
+
+Given $\hat{p}_b = s_b/n_b$ and a desired confidence level (e.g.\ 95\%), let $z$ denote the corresponding $z$-score from the standard normal distribution (e.g.\ $z \approx 1.96$ for 95\% confidence). The Wilson score interval is defined as follows.
+
+First compute:
+\begin{align}
+    \text{den}_b    & = 1 + \frac{z^2}{n_b}, \label{eq:den}                                  \\
+    \text{center}_b & = \frac{\hat{p}_b + \frac{z^2}{2n_b}}{\text{den}_b}, \label{eq:center} \\
+    \text{margin}_b & = \frac{z}{\text{den}_b}
+    \sqrt{
+        \frac{\hat{p}_b(1 - \hat{p}_b)}{n_b}
+        + \frac{z^2}{4n_b^2}
+    }. \label{eq:margin}
+\end{align}
+
+The confidence interval is then
+\begin{equation}
+    \left[
+        \text{center}_b - \text{margin}_b,\;
+        \text{center}_b + \text{margin}_b
+        \right]
+    = [\text{ci\_lower}_b,\, \text{ci\_upper}_b].
+    \label{eq:wilson-interval}
+\end{equation}
+
+\subsection{Interpretation in Plots}
+
+When plotting $\hat{p}_b$ as a function of the bin index $b$, we also display the interval \eqref{eq:wilson-interval} as vertical error bars or shaded bands. This visualization conveys:
+\begin{itemize}
+    \item \textbf{Magnitude of uncertainty}: bins with small $n_b$ will have wider intervals, signaling that individual estimates should be interpreted more cautiously.
+    \item \textbf{Robustness of differences}: if the intervals for two bins overlap heavily, we should be more cautious in claiming that their probabilities differ. If they are well-separated, the differences are more likely to be statistically meaningful.
+\end{itemize}
+
+\section{Measuring Informativeness of Metrics}
+\label{sec:informativeness}
+
+Beyond visual inspection of probability curves, we would like scalar summary statistics that quantify how informative a metric is about the outcome $I_t$. We discuss two such measures: information gain (based on Kullback–Leibler divergence) and the chi-square test for independence.
+
+\subsection{Information Gain via KL Divergence}
+
+\subsubsection{Bin Weights}
+
+Each bin $b$ contains $n_b$ observations. Define the normalized bin weights
+\begin{equation}
+    w_b = \frac{n_b}{\sum_{j} n_j},
+    \label{eq:wb}
+\end{equation}
+so that $\sum_b w_b = 1$. These weights reflect the empirical frequency with which the metric falls into each bin.
+
+\subsubsection{Definition of Information Gain}
+
+We interpret the unconditional base rate $\bar{p}$ as a ``baseline'' Bernoulli distribution for the outcome $I_t$. In bin $b$, the empirical distribution for $I_t$ is a Bernoulli with parameter $\hat{p}_b$. For each bin, we can compute the Kullback–Leibler (KL) divergence between these two Bernoulli distributions.
+
+The \emph{information gain} (IG) of the metric is defined as the expected KL divergence across bins:
+\begin{equation}
+    \text{IG} = \sum_{b} w_b \left[
+        \hat{p}_b \log\left(\frac{\hat{p}_b}{\bar{p}}\right)
+        + (1 - \hat{p}_b)\log\left(\frac{1 - \hat{p}_b}{1 - \bar{p}}\right)
+        \right].
+    \label{eq:information-gain}
+\end{equation}
+
+\subsubsection{Interpretation}
+
+\begin{itemize}
+    \item If $\hat{p}_b = \bar{p}$ for all bins, then each bin has the same Bernoulli distribution as the unconditional base rate, and $\text{IG} = 0$. In this case, the metric does not change the distribution of outcomes at all.
+    \item Larger values of IG indicate that the bin-wise outcome distributions deviate more strongly from the base rate. Intuitively, the metric then carries more information about $I_t$: knowing that the metric is in a particular bin significantly changes our belief about the probability of a positive 6-month return.
+    \item IG is measured in \emph{nats} if natural logarithms are used (as above), or in \emph{bits} if logarithms base 2 are used.
+\end{itemize}
+
+\subsection{Probability Range}
+
+A simpler but highly interpretable measure is the range of the bin-wise probabilities:
+\begin{equation}
+    \text{Range} = \max_b \hat{p}_b - \min_b \hat{p}_b.
+    \label{eq:range}
+\end{equation}
+This quantity captures how much the conditional probability of a positive 6-month return varies as we move from the ``worst'' metric regime to the ``best'' one.
+
+\begin{itemize}
+    \item A large range indicates that the metric is capable of sharply differentiating between favorable and unfavorable regimes.
+    \item A small range suggests that, even though the metric may be somewhat informative, the variation in probability is modest.
+\end{itemize}
+
+Range is not a formal statistical test, but it is often useful for ranking and communicating results.
+
+\subsection{Chi-Square Test for Independence}
+
+\subsubsection{Contingency Table}
+
+To formally test whether the metric and the outcome are statistically dependent, we build a contingency table over bins and outcomes. For each bin $b$:
+\[
+    \text{Positive count: } s_b, \qquad
+    \text{Negative count: } n_b - s_b.
+\]
+Stacking these across all bins yields a $B \times 2$ table:
+\[
+    \begin{bmatrix}
+        s_0     & n_0 - s_0         \\
+        s_1     & n_1 - s_1         \\
+        \vdots  & \vdots            \\
+        s_{B-1} & n_{B-1} - s_{B-1}
+    \end{bmatrix}.
+\]
+
+\subsubsection{Hypotheses and Test}
+
+The chi-square test evaluates:
+\[
+    H_0: \text{Outcome $I_t$ is independent of bin index (and hence of the metric)} \\
+    H_1: \text{Outcome depends on bin index.}
+\]
+Under $H_0$, the probability of a positive outcome is the same across all bins and equals the base rate $\bar{p}$. The chi-square statistic measures deviations between the observed counts $(s_b, n_b - s_b)$ and the counts expected under $H_0$.
+
+A small $p$-value (e.g.\ $p < 0.05$) provides evidence against $H_0$, suggesting that the outcome distribution varies across bins. In other words, the metric is statistically associated with the probability of a positive 6-month return.
+
+\section{End-to-End Pipeline}
+\label{sec:pipeline}
+
+This section summarizes the implemented pipeline in \texttt{screener/main.py}, which exposes
+four CLI workflows that can be run independently or in sequence.
+
+\subsection{CLI Workflows}
+
+\begin{enumerate}
+    \item \textbf{Fetch ETF price data (\texttt{--fetch-data}):}
+          \begin{itemize}
+              \item Parse ticker symbols from input CSVs (default: \texttt{data/*.csv}).
+              \item Fetch historical price data from Yahoo Finance.
+              \item Save per-ticker CSVs under \texttt{data/} (or \texttt{--fetch-output-dir}).
+          \end{itemize}
+
+    \item \textbf{Fetch macro data (\texttt{--fetch-macro}):}
+          \begin{itemize}
+              \item Fetch FRED series (default: \texttt{T10Y2Y}, \texttt{CPIAUCSL}, \texttt{GS10}, \texttt{SP500}).
+              \item Save macro series under \texttt{data/macro} (or \texttt{--macro-dir}).
+          \end{itemize}
+
+    \item \textbf{Model ETF returns (\texttt{--model-etf-returns}):}
+          \begin{itemize}
+              \item Load ETF price histories from \texttt{data/etfs} (or \texttt{--etf-dir}).
+              \item Optionally load macro data from \texttt{data/macro} if available.
+              \item Create the forward-return target (default: 6 months; configurable via \texttt{--model-target-months}).
+              \item Compute technical and macro features.
+              \item Run the selected modeling mode (enumeration, logistic, or stepwise).
+              \item Save outputs under \texttt{results/} (or \texttt{--model-results-dir}).
+          \end{itemize}
+
+    \item \textbf{Rank ETFs or predictive metrics (\texttt{--rank-etfs}):}
+          \begin{itemize}
+              \item Rank ETFs by descriptive performance metrics (default).
+              \item If \texttt{--rank-predictive-metrics} is provided, rank \emph{metrics} by Information Gain.
+              \item Save consolidated rankings to \texttt{etf\_rankings.csv} (or \texttt{--rankings-output}).
+          \end{itemize}
+\end{enumerate}
+
+\subsection{Modeling Procedure (Enumeration Mode)}
+
+When \texttt{--model-type enumeration} is selected, the following steps are applied to each
+candidate metric $M_t$ for the ETF universe:
+
+\begin{enumerate}
+    \item \textbf{Compute metric time series:}
+          \begin{itemize}
+              \item For each ETF and each eligible time $t$, compute the metric value $M_t$ using the ETF's historical data.
+          \end{itemize}
+
+    \item \textbf{Compute forward return indicator:}
+          \begin{itemize}
+              \item For each time $t$ where forward data is available, compute the 6-month forward return $R_t^{(6m)}$ as in \eqref{eq:forward-return}.
+              \item Compute the binary indicator $I_t$ as in \eqref{eq:indicator}.
+          \end{itemize}
+
+    \item \textbf{Bin the metric:}
+          \begin{itemize}
+              \item Choose the number of bins $B$ (default 5; configurable via \texttt{--model-bins}) and a binning scheme (e.g.\ quantile bins).
+              \item Determine the bin boundaries $\{a_b\}$ and define $\mathcal{B}_b = [a_b, a_{b+1})$.
+              \item For each observation $t$, assign $\text{bin}_t$ according to \eqref{eq:bin-index}.
+          \end{itemize}
+
+    \item \textbf{Compute bin-wise statistics:}
+          \begin{itemize}
+              \item For each bin $b$, compute $n_b$ and $s_b$ via \eqref{eq:nb}--\eqref{eq:sb}.
+              \item Compute $\hat{p}_b = s_b / n_b$ as in \eqref{eq:phat}.
+              \item Compute Wilson score intervals $[\text{ci\_lower}_b, \text{ci\_upper}_b]$ using \eqref{eq:den}--\eqref{eq:wilson-interval}.
+          \end{itemize}
+
+    \item \textbf{Global metrics:}
+          \begin{itemize}
+              \item Compute the base rate $\bar{p}$ using \eqref{eq:base-rate}.
+              \item Compute bin weights $w_b$ via \eqref{eq:wb}.
+              \item Compute information gain (IG) via \eqref{eq:information-gain}.
+              \item Compute probability range via \eqref{eq:range}.
+              \item Build the contingency table and compute the chi-square statistic and corresponding $p$-value.
+          \end{itemize}
+\end{enumerate}
+
+\subsection{Visualization and Interpretation}
+
+If \texttt{--model-type logistic} is selected, the pipeline trains a binary classifier
+on the full feature set and reports model diagnostics without generating per-metric
+probability plots. If \texttt{--model-type stepwise} is selected, the pipeline performs
+forward feature selection to maximize ROC-AUC and reports the chosen features and
+incremental AUC improvements.
+
+For each metric, we produce a plot with:
+\begin{itemize}
+    \item $x$-axis: bin index $b$, arranged from low to high metric values.
+    \item $y$-axis: estimated conditional probability $\hat{p}_b$.
+    \item Horizontal dashed line: base rate $\bar{p}$.
+    \item Error bars or shaded bands: Wilson confidence intervals.
+\end{itemize}
+
+From this plot, we can qualitatively assess:
+\begin{itemize}
+    \item Whether the relationship between the metric and the probability of positive returns is monotonic, U-shaped, or more complex.
+    \item Whether the range $\max_b \hat{p}_b - \min_b \hat{p}_b$ is economically meaningful.
+    \item Whether the Wilson intervals are tight (indicating robust signal) or wide (indicating noisy estimates).
+\end{itemize}
+
+In addition, summary tables can be constructed to compare multiple metrics side by side, showing, for each metric:
+\begin{itemize}
+    \item Information gain (IG).
+    \item Probability range.
+    \item Chi-square statistic and $p$-value.
+    \item Minimum and maximum $\hat{p}_b$ across bins.
+\end{itemize}
+These statistics can be used to rank metrics in terms of how strongly and reliably they shift the odds of a positive 6-month return.
+
+\section{Extensions and Future Work}
+\label{sec:extensions}
+
+The binned probability framework is intentionally simple and non-parametric, making it easy to interpret and robust to model misspecification. However, it also opens the door to several natural extensions.
+
+\subsection{Expanding the ETF Universe}
+
+A larger ETF universe increases the total number of observations, which improves:
+\begin{itemize}
+    \item \textbf{Statistical power:} more data per bin reduces the uncertainty of $\hat{p}_b$ and yields tighter Wilson intervals.
+    \item \textbf{Generalizability:} results are less likely to be driven by idiosyncrasies of a small subset of ETFs.
+\end{itemize}
+As more ETFs are included, one can also study whether the shape of the probability curves is consistent across sectors, regions, or asset classes.
+
+\subsection{Combining Multiple Metrics}
+
+The current framework evaluates one metric at a time. In practice, we may want to combine several metrics $\text{metric}_1, \dots, \text{metric}_n$ into a joint model for
+\[
+    P(I_t = 1 \mid \text{metric}_1, \dots, \text{metric}_n).
+\]
+There are several possible approaches:
+\begin{itemize}
+    \item \textbf{Multivariate binning:} define bins in a higher-dimensional space (e.g.\ 2D bins over pairs of metrics). This becomes challenging as dimensionality grows due to data sparsity.
+    \item \textbf{Parametric models:} use logistic regression or generalized additive models (GAMs) where each metric enters as a feature. This imposes structure on the conditional probability while retaining interpretability.
+    \item \textbf{Nonlinear models:} employ tree-based methods (random forests, gradient boosting) or neural networks for richer interactions between metrics.
+\end{itemize}
+
+Even when using more complex models, the binned probability plots can serve as a diagnostic tool: we can compare the model-implied probabilities to the empirical $\hat{p}_b$ curves for sanity checks.
+
+\subsection{Nonlinear and Machine Learning Models}
+
+Beyond the simple binning approach, one can consider:
+\begin{itemize}
+    \item \textbf{Random forests and gradient boosting:} tree-based models naturally capture nonlinear interactions and can output calibrated class probabilities.
+    \item \textbf{Isotonic regression:} when we believe that the relationship between a metric and the probability of success is monotonic, isotonic regression can be used to fit a monotone probability curve that respects this shape constraint.
+\end{itemize}
+
+The binned framework described here is complementary to these models. It provides a clear, model-agnostic picture of how the empirical probabilities behave, which can then guide the choice and evaluation of more sophisticated models.
+
+\section{Parametric Estimation via Logistic Regression}
+\label{sec:logistic}
+
+The binned probability framework provides a non-parametric and highly interpretable approximation of the conditional probability function
+\[
+    P(I_t = 1 \mid M_t = m).
+\]
+However, binning introduces discretization error and can obscure fine-grained structure in the relationship between the metric and future returns. A natural parametric alternative is to model this conditional probability directly using \textbf{logistic regression}.
+
+\subsection{Single-Metric Logistic Model}
+
+For a single metric $M_t$, the logistic regression model assumes:
+\begin{equation}
+    P(I_t = 1 \mid M_t) = \sigma(\beta_0 + \beta_1 M_t),
+    \label{eq:logistic-single}
+\end{equation}
+where:
+\begin{itemize}
+    \item $\sigma(x) = \frac{1}{1 + e^{-x}}$ is the logistic (sigmoid) function,
+    \item $\beta_0$ is the intercept,
+    \item $\beta_1$ is the slope coefficient controlling how strongly the metric affects the log-odds of a positive return.
+\end{itemize}
+
+This model implies a smooth, monotonic probability curve in $M_t$, in contrast to the stepwise curve produced by binning.
+
+\subsection{Interpretation of Coefficients}
+
+Taking log-odds, we obtain:
+\[
+    \log\left(\frac{P(I_t = 1 \mid M_t)}{1 - P(I_t = 1 \mid M_t)}\right)
+    = \beta_0 + \beta_1 M_t.
+\]
+
+Thus:
+\begin{itemize}
+    \item The sign of $\beta_1$ determines whether the metric increases or decreases the probability of a positive return.
+    \item The magnitude $|\beta_1|$ controls how sensitive the probability is to changes in $M_t$.
+    \item A large positive $\beta_1$ implies that higher metric values rapidly push the probability toward 1.
+\end{itemize}
+
+\subsection{Relationship to Binning}
+
+The binned estimates $\hat{p}_b$ can be viewed as a piecewise-constant, non-parametric approximation of the same underlying conditional probability that logistic regression attempts to model as a smooth function. In practice:
+\begin{itemize}
+    \item The binned probabilities provide a diagnostic check on whether the logistic functional form is reasonable.
+    \item The logistic model can interpolate between bins and extrapolate beyond observed quantiles.
+    \item When the empirical probability curve is roughly monotonic, logistic regression often provides a compact and stable summary.
+\end{itemize}
+
+\subsection{Multivariate Logistic Regression}
+
+When multiple metrics are available, we can model the joint conditional probability as:
+\begin{equation}
+    P(I_t = 1 \mid \bm{M}_t)
+    = \sigma\left(\beta_0 + \sum_{k=1}^d \beta_k M_{k,t}\right),
+    \label{eq:logistic-multivariate}
+\end{equation}
+where $\bm{M}_t = (M_{1,t}, \dots, M_{d,t})$ is the vector of metrics at time $t$.
+
+This formulation enables:
+\begin{itemize}
+    \item Joint conditioning on multiple signals,
+    \item Control for correlations between metrics,
+    \item Direct modeling of combined predictive structure.
+\end{itemize}
+
+However, once we move to multivariate models, interpretability and metric ranking become significantly more subtle—this motivates the next section.
+
+\subsection{Backtesting and Portfolio Construction}
+
+Ultimately, the goal of modeling $P(I_t = 1 \mid M_t)$ is to inform portfolio decisions. Once a set of metrics has been identified as strongly predictive (e.g.\ high IG, large probability range, significant chi-square), one can:
+\begin{itemize}
+    \item Define trading rules that favor ETFs in bins with high $\hat{p}_b$ and avoid those in bins with low $\hat{p}_b$.
+    \item Backtest these rules over historical data to evaluate out-of-sample performance.
+    \item Combine probability-based signals with other considerations such as risk constraints, liquidity, and transaction costs.
+\end{itemize}
+
+The binned probability estimates thus act as a bridge between statistical analysis and actionable trading strategies.
+
+\section{Open Questions: How Should Metrics Be Ranked?}
+\label{sec:open-questions}
+
+The binned framework provides several natural scalar quantities for ranking metrics, including:
+\begin{itemize}
+    \item information gain (IG),
+    \item the probability range $\max_b \hat{p}_b - \min_b \hat{p}_b$,
+    \item chi-square test statistics.
+\end{itemize}
+
+These quantities work well in the discrete, bin-based setting. However, once we move to continuous probability models---such as logistic regression or more general machine learning estimators---a fundamental open question emerges:
+
+\begin{quote}
+    \textbf{Even if we have a highly accurate estimate of the full conditional probability $P(I_t = 1 \mid M_t)$, how should we formally rank metrics by ``predictiveness''?}
+\end{quote}
+
+\subsection{Ambiguity in What ``Best'' Means}
+
+Several competing notions of what it means for a metric to be ``better'' arise:
+\begin{itemize}
+    \item \textbf{Statistical strength:} how strongly does the metric affect the outcome in a probabilistic sense?
+    \item \textbf{Economic significance:} how large are the induced changes in return probability?
+    \item \textbf{Stability:} does the relationship persist across time, regimes, and ETF sub-universes?
+    \item \textbf{Incremental value:} does the metric add information beyond what is already captured by others?
+\end{itemize}
+
+A single scalar ranking cannot generally capture all of these dimensions simultaneously.
+
+\subsection{Possible Ranking Criteria Under Continuous Models}
+
+Suppose we use a smooth model (e.g.\ logistic regression) to estimate the conditional probability function
+\[
+    p(m) = P(I_t = 1 \mid M_t = m).
+\]
+Several candidate ranking criteria then become available.
+
+\subsubsection{(1) Expected KL Divergence from the Base Rate}
+
+A continuous analogue of the binned information gain is
+\begin{equation}
+    \mathrm{IG}_{\text{cont}}
+    = \mathbb{E}_{M_t} \Big[
+        p(M_t)\log\frac{p(M_t)}{\bar{p}}
+        + \bigl(1 - p(M_t)\bigr)\log\frac{1 - p(M_t)}{1 - \bar{p}}
+        \Big],
+\end{equation}
+where $\bar{p}$ is the unconditional base rate. This measures how much, on average, conditioning on $M_t$ changes the distribution of outcomes relative to the base rate.
+
+\subsubsection{(2) Slope Magnitude in Logistic Regression}
+
+In the single-metric logistic model
+\[
+    P(I_t = 1 \mid M_t) = \sigma(\beta_0 + \beta_1 M_t),
+\]
+one simple ranking is by the absolute value $|\beta_1|$, which measures the change in log-odds per unit change in the metric. However:
+\begin{itemize}
+    \item this ranking is scale-dependent (rescaling $M_t$ changes $|\beta_1|$),
+    \item it depends on how the metric is normalized,
+    \item it does not directly measure probability separation.
+\end{itemize}
+
+\subsubsection{(3) Maximum Probability Separation}
+
+A continuous analogue of the probability range is
+\[
+    \Delta p_{\max} = \sup_m p(m) - \inf_m p(m),
+\]
+which captures how far apart the best and worst regimes are under the model.
+
+\subsubsection{(4) Out-of-Sample Predictive Power}
+
+Metrics can also be ranked by their contribution to out-of-sample predictive performance, for example via:
+\begin{itemize}
+    \item improvement in log-likelihood,
+    \item area under the ROC curve (AUC),
+    \item reduction in Brier score,
+    \item cross-validated information gain.
+\end{itemize}
+These criteria shift the focus from descriptive probability modeling to predictive performance.
+
+\subsection{Causal vs.\ Predictive Ranking}
+
+An even deeper unresolved issue is whether metrics should be ranked by:
+\begin{itemize}
+    \item their \textbf{predictive} strength (associational),
+    \item or their \textbf{causal} influence on future returns.
+\end{itemize}
+
+The framework developed in this document is fundamentally associational:
+\[
+    P(I_t = 1 \mid M_t = m)
+\]
+does not identify causal effects without additional structural assumptions. Two metrics may have similar probability curves but vastly different causal interpretations.
+
+\subsection{Key Open Problem}
+
+The central unresolved research question is therefore:
+
+\begin{quote}
+    \textbf{What is a principled, model-agnostic way to rank financial metrics once we move beyond binned empirical probabilities and into continuous probabilistic estimators?}
+\end{quote}
+
+Possible directions for future work include:
+\begin{itemize}
+    \item information-theoretic rankings valid under arbitrary conditional probability estimators,
+    \item stability-based rankings using rolling-window estimation,
+    \item causal ranking criteria based on structural return models,
+    \item portfolio-level utility-based rankings that connect probability curves to realized performance.
+\end{itemize}
+
+At present, no single ranking method is universally dominant, and the ``correct'' ranking depends fundamentally on whether the goal is explanation, prediction, or portfolio construction.
+
+\end{document}

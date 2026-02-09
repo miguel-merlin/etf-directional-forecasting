@@ -3,16 +3,16 @@ from typing import Sequence
 import pandas as pd
 import os
 
-from utils import (
+from screener.utils import (
     parse_tickers_from_csvs,
     fetch_yfinance_data,
     load_etf_data_from_csvs,
     fetch_fred_data,
     load_macro_data,
 )
-from ranking import ETFRanker
-from modeling import ETFReturnPredictor
-from config import (
+from screener.ranking import ETFRanker
+from screener.modeling import ETFReturnPredictor
+from screener.config import (
     FetchConfig,
     RankingConfig,
     ETFReturnModelingConfig,
@@ -93,9 +93,13 @@ def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
         print("\n\nSaving probability plots for each metric (with bin ranges and KL)")
         predictor.plot_metric_probabilities_for_metrics(summary["metric"].tolist())
     elif config.model == ModelType.LOGISTIC:
-        print("\nLogistic Regression modeling complete. No specific plots generated for individual features.")
+        print(
+            "\nLogistic Regression modeling complete. No specific plots generated for individual features."
+        )
     elif config.model == ModelType.STEPWISE:
-        print("\nStepwise Feature Selection complete. Check the output above for selected features and AUC improvement.")
+        print(
+            "\nStepwise Feature Selection complete. Check the output above for selected features and AUC improvement."
+        )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

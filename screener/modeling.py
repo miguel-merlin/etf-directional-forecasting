@@ -11,7 +11,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 
-from metrics import BaseMetric, get_metrics
+from screener.metrics import BaseMetric, get_metrics
 
 
 @dataclass
@@ -446,7 +446,9 @@ class ETFReturnPredictor:
 
             f.write(f"DATASET OVERVIEW:\n")
             f.write(f"- ETFs Analyzed: {', '.join(self.prices.columns)}\n")
-            f.write(f"- Date Range: {self.prices.index.min()} to {self.prices.index.max()}\n")
+            f.write(
+                f"- Date Range: {self.prices.index.min()} to {self.prices.index.max()}\n"
+            )
             f.write(f"- Total Observations (ETF-Dates): {len(self.features)}\n\n")
 
             f.write(f"VARIABLES ANALYZED ({len(all_metrics)} total):\n")
@@ -461,7 +463,11 @@ class ETFReturnPredictor:
 
             f.write(f"TOP 10 PREDICTIVE FACTORS (by Information Gain):\n")
             f.write("-" * 80 + "\n")
-            f.write(top_10[["metric", "information_gain", "prob_range", "n_observations"]].to_string(index=False))
+            f.write(
+                top_10[
+                    ["metric", "information_gain", "prob_range", "n_observations"]
+                ].to_string(index=False)
+            )
             f.write("\n" + "-" * 80 + "\n")
 
         print(f"\n✓ Experiment metadata saved to: {metadata_file}")
@@ -501,7 +507,9 @@ class ETFReturnPredictor:
 
         return ranked_metrics
 
-    def perform_forward_selection(self, max_features: int = 10, min_auc_improvement: float = 0.001) -> List[str]:
+    def perform_forward_selection(
+        self, max_features: int = 10, min_auc_improvement: float = 0.001
+    ) -> List[str]:
         """
         Perform stepwise forward feature selection using Logistic Regression.
 
@@ -523,9 +531,11 @@ class ETFReturnPredictor:
 
         # Prepare Data
         features_flat, target_flat = self._prepare_flat_data()
-        
+
         # Align and Clean
-        combined_data = pd.merge(features_flat, target_flat, on=["date", "etf"]).dropna()
+        combined_data = pd.merge(
+            features_flat, target_flat, on=["date", "etf"]
+        ).dropna()
         combined_data = combined_data.replace([np.inf, -np.inf], np.nan).dropna()
 
         if combined_data.empty:
@@ -544,7 +554,9 @@ class ETFReturnPredictor:
         remaining_features = list(X.columns)
         current_best_auc = 0.5
 
-        print(f"\nStarting Forward Selection with {len(remaining_features)} candidate features...")
+        print(
+            f"\nStarting Forward Selection with {len(remaining_features)} candidate features..."
+        )
         print(f"{'Step':<5} {'Feature Added':<30} {'New AUC':<10} {'Improvement':<10}")
         print("-" * 60)
 
@@ -554,10 +566,10 @@ class ETFReturnPredictor:
 
             for feature in remaining_features:
                 candidate_features = selected_features + [feature]
-                
+
                 model = LogisticRegression(solver="liblinear", random_state=42)
                 model.fit(X_train[candidate_features], y_train)
-                
+
                 # Predict probabilities
                 y_pred_proba = model.predict_proba(X_test[candidate_features])[:, 1]
                 auc = roc_auc_score(y_test, y_pred_proba)
@@ -572,14 +584,16 @@ class ETFReturnPredictor:
                 selected_features.append(step_best_feature)
                 remaining_features.remove(step_best_feature)
                 current_best_auc = step_best_auc
-                print(f"{step+1:<5} {step_best_feature:<30} {current_best_auc:.4f}     +{improvement:.4f}")
+                print(
+                    f"{step+1:<5} {step_best_feature:<30} {current_best_auc:.4f}     +{improvement:.4f}"
+                )
             else:
                 print(f"Stopping: No feature improved AUC by > {min_auc_improvement}")
                 break
-        
+
         print("-" * 60)
         print(f"Selected {len(selected_features)} features: {selected_features}")
-        
+
         # Train final model on selected features using ALL available data
         if selected_features:
             print("Training final model on selected features...")
@@ -606,7 +620,9 @@ class ETFReturnPredictor:
             features_flat, target_flat = self._prepare_flat_data()
 
             # Drop rows with NaN values in features or target
-            combined_data = pd.merge(features_flat, target_flat, on=["date", "etf"]).dropna()
+            combined_data = pd.merge(
+                features_flat, target_flat, on=["date", "etf"]
+            ).dropna()
             X = combined_data.drop(
                 columns=["target", "etf", "date"]
             )  # 'etf' and 'date' are identifiers, not features
@@ -635,11 +651,11 @@ class ETFReturnPredictor:
                     "Features or target not calculated. Please run calculate_features and create_target_variable first."
                 )
                 return
-            
+
             selected = self.perform_forward_selection()
             if selected:
-                 # Predictions are made by the model trained at the end of perform_forward_selection
-                 # We just need to grab the right columns from X
+                # Predictions are made by the model trained at the end of perform_forward_selection
+                # We just need to grab the right columns from X
                 features_flat = self.features.copy()
                 X = features_flat[selected].replace([np.inf, -np.inf], np.nan).fillna(0)
                 predictions = self.predict_logistic_regression(X)

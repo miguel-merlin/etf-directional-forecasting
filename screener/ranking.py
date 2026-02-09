@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
-from modeling import ETFReturnPredictor
+from screener.modeling import ETFReturnPredictor
 
 
 class ETFRanker:
