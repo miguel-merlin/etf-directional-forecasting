@@ -37,7 +37,7 @@ class ETFReturnModelingConfig:
     """Configuration for modelling ETF returns."""
 
     data_dir: str = "data/etfs"
-    plot_dir: str = "results/plots"
+    results_dir: str = "results"
     target_return_period_months: int = 6
     n_bins: int = 5
     model: ModelType = ModelType.ENUMERATION

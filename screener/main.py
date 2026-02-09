@@ -43,7 +43,7 @@ def run_ranking_workflow(config: RankingConfig) -> None:
 def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
     """Model ETF returns based on historical data and features."""
     etf_price_data = load_etf_data_from_csvs(config.data_dir)
-    predictor = ETFReturnPredictor(etf_price_data, plot_dir=config.plot_dir, model_type=config.model.value)
+    predictor = ETFReturnPredictor(etf_price_data, results_dir=config.results_dir, model_type=config.model.value)
     target = predictor.create_target_variable(months=config.target_return_period_months)
     print("Target variable created. Shape:", target.shape)
     print(f"Overall positive rate: {target.mean().mean():.3f}")
@@ -124,9 +124,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Model ETF returns based on historical data and features.",
     )
     parser.add_argument(
-        "--model-plot-dir",
-        default="results/plots",
-        help="Directory where modeling plots should be saved.",
+        "--model-results-dir",
+        default="results",
+        help="Base directory where modeling results (plots and bin details) should be saved.",
     )
     parser.add_argument(
         "--model-target-months",
@@ -165,7 +165,7 @@ def main() -> None:
     )
     etf_returns_modeling_config = ETFReturnModelingConfig(
         data_dir=args.etf_dir,
-        plot_dir=args.model_plot_dir,
+        results_dir=args.model_results_dir,
         target_return_period_months=args.model_target_months,
         n_bins=args.model_bins,
         model=ModelType(args.model_type),

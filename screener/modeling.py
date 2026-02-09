@@ -35,7 +35,7 @@ class ETFReturnPredictor:
     def __init__(
         self,
         price_data: pd.DataFrame,
-        plot_dir: str = "results/plots",
+        results_dir: str = "results",
         model_type: str = "enumeration",
     ):
         """
@@ -55,9 +55,13 @@ class ETFReturnPredictor:
         self.logistic_model = None  # Initialize logistic model
         self.model_type = model_type  # Store the model type
 
-        if not os.path.exists(plot_dir):
-            os.makedirs(plot_dir)
-        self.plot_dir = plot_dir
+        self.results_dir = results_dir
+        self.plot_dir = os.path.join(results_dir, "plots")
+
+        if not os.path.exists(self.results_dir):
+            os.makedirs(self.results_dir)
+        if not os.path.exists(self.plot_dir):
+            os.makedirs(self.plot_dir)
 
     def calculate_forward_return(self, months: int = 6) -> pd.DataFrame:
         """Calculate forward returns for specified horizon."""
@@ -585,27 +589,36 @@ class ETFReturnPredictor:
         ax.legend(lines + bars, labels + bar_labels, loc="upper left")
 
         plt.tight_layout()
-        plt.savefig(self.plot_dir + f"/{metric_name}_probability_plot.png")
+        plt.savefig(os.path.join(self.plot_dir, f"{metric_name}_probability_plot.png"))
         plt.close()
+
+        # Prepare bin details text
+        details_txt = probs[
+            [
+                "metric_min",
+                "metric_max",
+                "bin_label",
+                "metric_mean",
+                "prob_positive",
+                "count",
+                "ci_lower",
+                "ci_upper",
+                "kl_divergence",
+            ]
+        ].to_string()
 
         # Print bin details
         print(f"\n{metric_name} - Bin Details:")
         print("=" * 80)
-        print(
-            probs[
-                [
-                    "metric_min",
-                    "metric_max",
-                    "bin_label",
-                    "metric_mean",
-                    "prob_positive",
-                    "count",
-                    "ci_lower",
-                    "ci_upper",
-                    "kl_divergence",
-                ]
-            ].to_string()
-        )
+        print(details_txt)
+
+        # Save bin details to txt file in results directory
+        txt_filename = os.path.join(self.results_dir, f"{metric_name}_bin_details.txt")
+        with open(txt_filename, "w") as f:
+            f.write(f"{metric_name} - Bin Details:\n")
+            f.write("=" * 80 + "\n")
+            f.write(details_txt)
+            f.write("\n")
 
     def plot_metric_probabilities_for_metrics(self, metrics: Sequence[str]) -> None:
         """Generate and save probability plots for the requested metrics."""
