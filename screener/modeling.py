@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
@@ -417,7 +418,52 @@ class ETFReturnPredictor:
             results_df = results_df.sort_values("information_gain", ascending=False)
         self.metric_summary = results_df
 
+        # Save metadata summary
+        self.save_experiment_metadata()
+
         return results_df
+
+    def save_experiment_metadata(self) -> None:
+        """Save experiment metadata including analyzed variables and top performing metrics."""
+        if self.metric_summary.empty:
+            return
+
+        metadata_file = os.path.join(self.results_dir, "experiment_summary.txt")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        all_metrics = self.metric_summary["metric"].tolist()
+        macro_metrics = [m for m in all_metrics if m.startswith("macro_")]
+        tech_metrics = [m for m in all_metrics if not m.startswith("macro_")]
+
+        top_10 = self.metric_summary.head(10)
+
+        with open(metadata_file, "w") as f:
+            f.write("=" * 80 + "\n")
+            f.write(f"ETF SCREENER EXPERIMENT SUMMARY\n")
+            f.write(f"Date: {timestamp}\n")
+            f.write("=" * 80 + "\n\n")
+
+            f.write(f"DATASET OVERVIEW:\n")
+            f.write(f"- ETFs Analyzed: {', '.join(self.prices.columns)}\n")
+            f.write(f"- Date Range: {self.prices.index.min()} to {self.prices.index.max()}\n")
+            f.write(f"- Total Observations (ETF-Dates): {len(self.features)}\n\n")
+
+            f.write(f"VARIABLES ANALYZED ({len(all_metrics)} total):\n")
+            f.write(f"- Technical Metrics ({len(tech_metrics)}):\n")
+            f.write(f"  {', '.join(tech_metrics[:10])} ...\n")
+            f.write(f"- Macro Variables ({len(macro_metrics)}):\n")
+            if macro_metrics:
+                f.write(f"  {', '.join(macro_metrics)}\n")
+            else:
+                f.write(f"  None\n")
+            f.write("\n")
+
+            f.write(f"TOP 10 PREDICTIVE FACTORS (by Information Gain):\n")
+            f.write("-" * 80 + "\n")
+            f.write(top_10[["metric", "information_gain", "prob_range", "n_observations"]].to_string(index=False))
+            f.write("\n" + "-" * 80 + "\n")
+
+        print(f"\n✓ Experiment metadata saved to: {metadata_file}")
 
     def get_top_metrics(self, top_n: Optional[int] = None) -> List[RankedMetric]:
         """
