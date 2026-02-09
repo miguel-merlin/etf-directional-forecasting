@@ -4,20 +4,24 @@ ETF screener that consumes locally stored price histories, computes common risk/
 
 ## Features
 - Batch import of ETF histories from `data/etfs/*.csv`
+- Macro data integration from FRED (Federal Reserve Economic Data) stored in `data/macro/*.csv`
 - Daily-return derived metrics such as annualized return, volatility, Sharpe ratio, max drawdown, and YTD return
 - Console rankings plus an `etf_rankings.csv` export for further analysis
-- Helper utilities to (a) extract symbols from multiple CSV sources and (b) pull their entire trading history via `yfinance`
-- Model 3- to 12-month ETF return probabilities, rank the most predictive metrics, and auto-generate probability plots
+- Helper utilities to (a) extract symbols from multiple CSV sources and (b) pull their entire trading history via `yfinance` or FRED
+- Model 3- to 12-month ETF return probabilities using Enumeration (binning), Logistic Regression, or Stepwise Forward Selection
+- Rank the most predictive metrics (Technical and Macro) based on Information Gain and Chi-Square significance
 
 ## Repository layout
 | Path | Purpose |
 | --- | --- |
-| `screener/main.py` | Entry point that ranks ETFs stored under `data/etfs`. |
-| `screener/metrics.py` | Calculates portfolio statistics and prints the rankings table. |
-| `screener/modeling.py` | Builds signal features, models forward returns, and plots conditional probabilities. |
-| `screener/config.py` | Typed configuration containers shared across the CLI workflows. |
-| `screener/utils.py` | Helper functions for parsing tickers and downloading new price histories. |
-| `data/` | Sample output plus your downloadable price histories. Each ETF should be its own CSV inside `data/etfs/`. |
+| `screener/main.py` | Entry point that orchestrates rankings, fetching, and modeling workflows. |
+| `screener/metrics.py` | Contains `BaseMetric` strategy classes for Technical and Macro indicators. |
+| `screener/modeling.py` | `ETFReturnPredictor` logic for binning, logistic modeling, and stepwise selection. |
+| `screener/ranking.py` | `ETFRanker` for descriptive stats or predictive power rankings. |
+| `screener/config.py` | Typed configuration containers for all CLI workflows. |
+| `screener/utils.py` | I/O helpers for Yahoo Finance, FRED, and local CSV parsing. |
+| `data/` | Data store for `etfs/` price histories and `macro/` indicators. |
+| `results/` | Output directory for probability plots, bin details, and experiment summaries. |
 
 ## Documentation
 - [Architecture & Pipeline](docs/architecture.md): Detailed overview of the system design and data flow.
@@ -47,39 +51,35 @@ The screener expects a CSV per ETF stored inside `data/etfs/`. Each file should 
    - `fetch_yfinance_data` saves a `ticker_info_<timestamp>.csv` file and an `individual_histories_<timestamp>/` folder containing one CSV per symbol. Copy or move the ETFs you want ranked into `data/etfs/`.
 
 ## Running the screener
-The CLI exposes one flag per feature so you can fetch data, rank ETFs, or do both in a single command.
+The CLI exposes flags for fetching data, ranking ETFs, and modeling returns.
 
-- `python -m screener.main --rank-etfs` – default behavior; omitting the flag does the same.
-- `python -m screener.main --fetch-data` – parse tickers via `--ticker-pattern` (default `data/*.csv`) and save downloads under `--fetch-output-dir` (default `data`). The pattern now accepts direct CSV paths (e.g., `data/watchlist.csv`) in addition to directories or globs, so you can run the fetcher on a single watchlist file.
-- `python -m screener.main --rank-etfs --display-metrics Sharpe_Ratio Annualized_Return_%` – pass custom metrics to print, and `--rankings-output`/`--etf-dir` to change file locations.
-- `python -m screener.main --model-etf-returns` – compute predictive features, evaluate their power against a forward return target, and save plots to `--model-plot-dir` (default `results/plots`).
-- Combine both flags to fetch data and immediately rank the refreshed histories.
-
-When ranking runs it will:
-1. Read every CSV in `data/etfs/` (or the directory you supplied).
-2. Compute the metrics defined in `screener/metrics.py`.
-3. Print ranked tables for each metric you requested.
-4. Export the consolidated results to `etf_rankings.csv` by default.
-
-If no files are found you will see an error message such as `No CSV files found in data/etfs`.
+- `python -m screener.main --fetch-data` – parse tickers via `--ticker-pattern` (default `data/*.csv`) and save downloads under `--fetch-output-dir` (default `data`).
+- `python -m screener.main --fetch-macro --fred-series T10Y2Y CPIAUCSL` – fetch specified series from FRED and save to `data/macro`.
+- `python -m screener.main --rank-etfs` – calculate performance metrics for ETFs in `data/etfs`.
+- `python -m screener.main --rank-predictive-metrics` – use the modeling engine to rank all available metrics by their Information Gain.
+- `python -m screener.main --rank-etfs --display-metrics Sharpe_Ratio Annualized_Return_%` – pass custom metrics to display.
 
 ## Modeling ETF returns
-The modeling workflow estimates the probability that each ETF posts a positive forward return (6 months ahead by default) based on the technical metrics produced in `screener/modeling.py`.
+The modeling workflow estimates the probability of positive forward returns based on technical and macro indicators.
 
 ```bash
 python -m screener.main --model-etf-returns \
   --etf-dir data/etfs \
+  --macro-dir data/macro \
   --model-target-months 6 \
-  --model-plot-dir results/plots \
-  --model-type enumeration
+  --model-type stepwise
 ```
 
-What you get:
-- Console summary of the top predictive metrics ranked by information gain, chi-square statistics, and sample counts.
-- A grid of plots for the top metrics plus a detailed chart for the best one, stored in `results/plots/`.
-- Saved probability tables (per metric) inside `ETFReturnPredictor.results` while the process is running, so you can reuse them inside notebooks if needed.
+**Model Types:**
+- `enumeration` (default) – Quantile-based binning to estimate conditional probabilities $P(Return > 0 | Bin)$.
+- `logistic` – Trains a Logistic Regression classifier on all available features.
+- `stepwise` – Performs forward feature selection to find the most predictive subset of indicators using ROC-AUC.
 
-Adjust `--model-target-months` to change the look-ahead window (e.g., 3, 6, or 12 months). Set `--model-plot-dir` if you want the PNGs to live elsewhere.
+**What you get:**
+- **Probability Plots:** Visualizations in `results/plots/` showing the relationship between metric bins and return probabilities.
+- **Experiment Summary:** A `results/experiment_summary.txt` file containing metadata, analyzed variables, and top performing factors.
+- **Bin Details:** Individual `.txt` files in `results/` for each metric detailing the probability distribution across bins.
+- **Information Gain (IG):** A ranking of metrics based on how much they reduce uncertainty about future returns.
 
 ## Metrics explained
 All returns assume trading days and use percentages unless noted otherwise.
@@ -96,9 +96,8 @@ All returns assume trading days and use percentages unless noted otherwise.
 ## Customizing
 - Change `data/etfs` inside `screener/main.py` if your histories live elsewhere.
 - Adjust the risk-free rate in `screener/metrics.py` to match your assumptions.
-- Extend `display_rankings` if you need additional printouts or prefer different sort orders.
-- Use `--model-target-months` and `--model-plot-dir` to tune the return-modeling workflow without touching the source.
-- Switch `--model-type` between `enumeration` (default) and `logistic` when experimenting with different modeling approaches.
+- Use `--model-target-months` and `--model-results-dir` to tune the return-modeling workflow.
+- Extend `ETFRanker.display` if you need additional printouts or prefer different sort orders.
 
 ## Troubleshooting
 - **`No CSV files found`** – Ensure the directory exists and the files carry the `.csv` extension.

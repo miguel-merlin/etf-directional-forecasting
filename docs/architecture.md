@@ -18,43 +18,43 @@ The codebase is organized into functional modules with clear separation of conce
 | :--- | :--- | :--- |
 | **`main.py`** | **Orchestrator** | Entry point, CLI argument parsing (`argparse`), workflow dispatch. |
 | **`config.py`** | **Configuration** | Typed DataClasses (`FetchConfig`, `RankingConfig`, `ETFReturnModelingConfig`) defining parameters. |
-| **`utils.py`** | **I/O & Ingestion** | `fetch_yfinance_data`, `load_etf_data_from_csvs`. Handles interaction with the filesystem and Yahoo Finance API. |
-| **`metrics.py`** | **Feature Engineering** | `BaseMetric` (Abstract Class) and concrete implementations (`VolatilityMetric`, `SharpeMetric`, etc.). |
-| **`modeling.py`** | **Core Logic** | `ETFReturnPredictor`. Implements the binning, conditional probability estimation, and statistical testing (Information Gain). |
-| **`ranking.py`** | **Reporting** | `ETFRanker`. Generates sorted lists of ETFs based on descriptive stats or metrics based on predictive power. |
+| **`utils.py`** | **I/O & Ingestion** | `fetch_yfinance_data`, `fetch_fred_data`, `load_etf_data_from_csvs`. Handles Yahoo Finance and FRED APIs. |
+| **`metrics.py`** | **Feature Engineering** | `BaseMetric` strategy and concrete implementations (Technical and `MacroMetric`). |
+| **`modeling.py`** | **Core Logic** | `ETFReturnPredictor`. Binning, probability estimation, Logistic Regression, and Stepwise selection. |
+| **`ranking.py`** | **Reporting** | `ETFRanker`. Generates sorted lists of ETFs or predictive Metrics. |
 
 ## 3. End-to-End Pipeline
 
 The system operates via three primary workflows which can be executed independently or sequentially.
 
-### Phase 1: Data Ingestion (`--fetch-data`)
-*   **Goal:** Build a local database of historical ETF prices.
+### Phase 1: Data Ingestion (`--fetch-data`, `--fetch-macro`)
+*   **Goal:** Build a local database of historical ETF prices and macroeconomic indicators.
 *   **Process:**
-    1.  **Discovery:** Scans input CSVs (defined by `--ticker-pattern`) to extract unique ticker symbols.
-    2.  **Fetch:** Queries the Yahoo Finance API (via `yfinance`) for max historical data.
-    3.  **Storage:** Saves individual CSV files (e.g., `data/SPY.csv`, `data/QQQ.csv`) containing Open, High, Low, Close, Volume data.
+    1.  **ETF Discovery:** Scans input CSVs to extract ticker symbols and queries Yahoo Finance.
+    2.  **Macro Fetch:** Queries FRED (Federal Reserve Economic Data) via `pandas_datareader` for series like Treasury yields (T10Y2Y), CPI, or SP500.
+    3.  **Storage:** Saves price histories in `data/etfs/` and macro series in `data/macro/`.
 
 ### Phase 2: Feature Engineering & Modeling (`--model-etf-returns`)
-*   **Goal:** Determine which metrics actually predict future returns.
+*   **Goal:** Determine which metrics (Technical and Macro) actually predict future returns.
 *   **Process:**
-    1.  **Load:** `utils.load_etf_data_from_csvs` aggregates all individual CSVs into a single Price DataFrame (Dates x ETFs).
-    2.  **Target Generation:**
-        *   Calculates the forward return (default: 6 months).
-        *   Binarizes the target: `1` if Return > 0, `0` otherwise.
+    1.  **Load:** Aggregates ETF CSVs and combines them with macro data (aligned via forward-filling).
+    2.  **Target Generation:** Calculates forward returns (default: 6 months) and binarizes them.
     3.  **Feature Calculation:**
-        *   `ETFReturnPredictor` instantiates metric calculators from `metrics.py`.
-        *   Computes rolling windows (e.g., 20d, 60d, 120d) for Volatility, Sharpe, Momentum, Skewness, etc.
-    4.  **Statistical Analysis (Enumeration Mode):**
-        *   **Discretization:** Continuous metrics are binned (default: 5 quantile bins).
-        *   **Probability Estimation:** Calculates $P(Return > 0 | Bin)$ for each bin.
-        *   **Validation:** Computes Wilson Score Intervals (uncertainty), Information Gain (predictive power), and Chi-Square statistics (significance).
-    5.  **Output:** Generates visualization plots in `results/plots` showing the probability curves for top metrics.
+        *   Instantiates `BaseMetric` subclasses including `Volatility`, `Momentum`, `Sharpe`, and `MacroMetric`.
+        *   `MacroMetric` uses `align_macro` to map low-frequency macro data (monthly/quarterly) to daily ETF price indexes.
+    4.  **Statistical Analysis & Modeling:**
+        *   **Enumeration Mode (Default):** Discretizes metrics into quantile bins and estimates $P(Return > 0 | Bin)$ using Wilson Score Intervals.
+        *   **Logistic Regression Mode:** Trains a binary classifier on the full feature set.
+        *   **Stepwise Mode (Forward Selection):** Greedily adds features to a logistic model to maximize ROC-AUC.
+    5.  **Output:** 
+        *   Generates a `results/experiment_summary.txt` with system-wide metadata.
+        *   Saves `results/plots/` (probability curves) and `results/*.txt` (bin-level distribution details).
 
-### Phase 3: Ranking (`--rank-etfs`)
+### Phase 3: Ranking (`--rank-etfs`, `--rank-predictive-metrics`)
 *   **Goal:** Provide actionable lists of ETFs or Metrics.
 *   **Modes:**
-    *   **Descriptive Ranking:** Calculates standard stats (YTD Return, Sharpe Ratio, Max Drawdown) for each ETF and sorts them. Useful for finding "best performing" funds currently.
-    *   **Predictive Ranking (`--rank-predictive-metrics`):** Uses the modeling engine to rank *metrics* by Information Gain. Useful for answering "Which technical indicator should I trust?"
+    *   **Descriptive Ranking:** Sorts ETFs by realized performance (Sharpe, YTD Return, etc.).
+    *   **Predictive Ranking:** Ranks *metrics* by their Information Gain (KL Divergence) as calculated by the modeling engine.
 
 ## 4. Key Architectural Patterns
 

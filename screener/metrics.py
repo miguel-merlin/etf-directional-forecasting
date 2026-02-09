@@ -139,8 +139,8 @@ class UpDownCaptureMetric(BaseMetric):
     def compute(self, prices: pd.Series, returns: pd.Series) -> pd.DataFrame:
         df = pd.DataFrame(index=prices.index)
         for period in self.windows:
-            up_days = returns.where(returns > 0).rolling(period).mean()
-            down_days = returns.where(returns < 0).rolling(period).mean()
+            up_days = returns.where(returns > 0).rolling(period, min_periods=1).mean()
+            down_days = returns.where(returns < 0).rolling(period, min_periods=1).mean()
             df[f"up_capture_{period}d"] = up_days
             df[f"down_capture_{period}d"] = down_days
         return df

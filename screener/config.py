@@ -38,6 +38,7 @@ class ModelType(Enum):
 
     ENUMERATION = "enumeration"
     LOGISTIC = "logistic"
+    STEPWISE = "stepwise"
 
 
 @dataclass

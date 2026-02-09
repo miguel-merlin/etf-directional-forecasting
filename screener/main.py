@@ -94,6 +94,8 @@ def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
         predictor.plot_metric_probabilities_for_metrics(summary["metric"].tolist())
     elif config.model == ModelType.LOGISTIC:
         print("\nLogistic Regression modeling complete. No specific plots generated for individual features.")
+    elif config.model == ModelType.STEPWISE:
+        print("\nStepwise Feature Selection complete. Check the output above for selected features and AUC improvement.")
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
