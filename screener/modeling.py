@@ -77,7 +77,9 @@ class ETFReturnPredictor:
         return self.target
 
     def calculate_features(
-        self, lookback_periods: List[int] = [20, 60, 120, 252]
+        self,
+        lookback_periods: List[int] = [20, 60, 120, 252],
+        macro_data: pd.DataFrame = pd.DataFrame(),
     ) -> pd.DataFrame:
         """
         Calculate comprehensive set of predictive features using metric classes.
@@ -92,6 +94,7 @@ class ETFReturnPredictor:
         - Volatility of volatility
         - Skewness and Kurtosis
         - Up/Down capture
+        - Macro-economic indicators (if provided)
         """
         metric_calculators: List[BaseMetric] = get_metrics(
             lookback_periods=lookback_periods,
@@ -99,6 +102,7 @@ class ETFReturnPredictor:
             long_window=200,
             vol_windows=[60, 120],
             volofvol_window=20,
+            macro_data=macro_data,
         )
 
         features_dict = {}

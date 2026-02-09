@@ -4,6 +4,8 @@ import os
 import yfinance as yf
 from datetime import datetime
 from pathlib import Path
+from typing import List, Optional
+import pandas_datareader.data as web
 
 
 def _collect_csv_files(source: str) -> list[str]:
@@ -178,3 +180,67 @@ def load_etf_data_from_csvs(data_dir: str) -> pd.DataFrame:
     print(f"ETFs: {', '.join(prices_df.columns.tolist())}")
 
     return prices_df
+
+
+def fetch_fred_data(series_ids: List[str], output_dir: str = "data/macro") -> None:
+    """
+    Fetch macro data from FRED and save to CSV.
+
+    Parameters:
+    -----------
+    series_ids : List[str]
+        List of FRED series IDs (e.g., 'T10Y2Y', 'CPIAUCSL')
+    output_dir : str
+        Directory to save the data
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"\nFetching {len(series_ids)} series from FRED...")
+
+    for series_id in series_ids:
+        print(f"  Fetching {series_id}...", end=" ")
+        try:
+            # We fetch max period available
+            df = web.DataReader(series_id, "fred", start="1970-01-01")
+            if not df.empty:
+                output_file = Path(output_dir) / f"{series_id}.csv"
+                df.to_csv(output_file)
+                print("✓")
+            else:
+                print("✗ (Empty response)")
+        except Exception as e:
+            print(f"✗ Error: {e}")
+
+
+def load_macro_data(macro_dir: str = "data/macro") -> pd.DataFrame:
+    """
+    Load all macro CSVs from a directory and combine them.
+
+    Returns:
+    --------
+    pd.DataFrame with DateTimeIndex
+    """
+    macro_path = Path(macro_dir)
+    csv_files = list(macro_path.glob("*.csv"))
+
+    if not csv_files:
+        return pd.DataFrame()
+
+    macro_dfs = []
+    for csv_file in csv_files:
+        try:
+            df = pd.read_csv(csv_file)
+            df["DATE"] = pd.to_datetime(df["DATE"])
+            df.set_index("DATE", inplace=True)
+            macro_dfs.append(df)
+        except Exception as e:
+            print(f"Error loading {csv_file}: {e}")
+
+    if not macro_dfs:
+        return pd.DataFrame()
+
+    combined = pd.concat(macro_dfs, axis=1)
+    combined = combined.sort_index()
+    # ffill macro data as it usually has lower frequency than daily
+    combined = combined.ffill()
+
+    return combined

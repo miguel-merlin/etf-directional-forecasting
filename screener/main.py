@@ -1,11 +1,24 @@
 import argparse
 from typing import Sequence
 import pandas as pd
+import os
 
-from utils import parse_tickers_from_csvs, fetch_yfinance_data, load_etf_data_from_csvs
+from utils import (
+    parse_tickers_from_csvs,
+    fetch_yfinance_data,
+    load_etf_data_from_csvs,
+    fetch_fred_data,
+    load_macro_data,
+)
 from ranking import ETFRanker
 from modeling import ETFReturnPredictor
-from config import FetchConfig, RankingConfig, ETFReturnModelingConfig, ModelType
+from config import (
+    FetchConfig,
+    RankingConfig,
+    ETFReturnModelingConfig,
+    ModelType,
+    FetchMacroConfig,
+)
 
 
 def run_fetch_workflow(config: FetchConfig) -> None:
@@ -17,6 +30,11 @@ def run_fetch_workflow(config: FetchConfig) -> None:
         return
 
     fetch_yfinance_data(tickers, output_dir=config.output_dir)
+
+
+def run_fetch_macro_workflow(config: FetchMacroConfig) -> None:
+    """Fetch macro data from FRED."""
+    fetch_fred_data(list(config.series_ids), output_dir=config.output_dir)
 
 
 def run_ranking_workflow(config: RankingConfig) -> None:
@@ -43,12 +61,21 @@ def run_ranking_workflow(config: RankingConfig) -> None:
 def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
     """Model ETF returns based on historical data and features."""
     etf_price_data = load_etf_data_from_csvs(config.data_dir)
-    predictor = ETFReturnPredictor(etf_price_data, results_dir=config.results_dir, model_type=config.model.value)
+    predictor = ETFReturnPredictor(
+        etf_price_data, results_dir=config.results_dir, model_type=config.model.value
+    )
     target = predictor.create_target_variable(months=config.target_return_period_months)
     print("Target variable created. Shape:", target.shape)
     print(f"Overall positive rate: {target.mean().mean():.3f}")
 
-    features = predictor.calculate_features()
+    # Load macro data if available
+    macro_data = pd.DataFrame()
+    if os.path.exists(config.macro_dir):
+        print(f"Loading macro data from {config.macro_dir}...")
+        macro_data = load_macro_data(config.macro_dir)
+        print(f"Macro data loaded. Columns: {', '.join(macro_data.columns)}")
+
+    features = predictor.calculate_features(macro_data=macro_data)
     print(f"\nFeatures calculated. Shape: {features.shape}")
     print(f"Number of metrics: {len([c for c in features.columns if c != 'etf'])}")
 
@@ -87,6 +114,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--fetch-output-dir",
         default="data",
         help="Directory where fetched info and history files should be saved.",
+    )
+
+    ## Macro arguments
+    parser.add_argument(
+        "--fetch-macro",
+        action="store_true",
+        help="Fetch macro data from FRED.",
+    )
+    parser.add_argument(
+        "--fred-series",
+        nargs="+",
+        default=["T10Y2Y", "CPIAUCSL", "GS10", "SP500"],
+        help="List of FRED series IDs to fetch.",
+    )
+    parser.add_argument(
+        "--macro-dir",
+        default="data/macro",
+        help="Directory where macro data should be saved/loaded.",
     )
 
     ## Ranking arguments
@@ -157,6 +202,10 @@ def main() -> None:
         ticker_pattern=args.ticker_pattern,
         output_dir=args.fetch_output_dir,
     )
+    fetch_macro_config = FetchMacroConfig(
+        series_ids=tuple(args.fred_series),
+        output_dir=args.macro_dir,
+    )
     ranking_config = RankingConfig(
         data_dir=args.etf_dir,
         output_file=args.rankings_output,
@@ -165,6 +214,7 @@ def main() -> None:
     )
     etf_returns_modeling_config = ETFReturnModelingConfig(
         data_dir=args.etf_dir,
+        macro_dir=args.macro_dir,
         results_dir=args.model_results_dir,
         target_return_period_months=args.model_target_months,
         n_bins=args.model_bins,
@@ -173,6 +223,8 @@ def main() -> None:
 
     if args.fetch_data:
         run_fetch_workflow(fetch_config)
+    if args.fetch_macro:
+        run_fetch_macro_workflow(fetch_macro_config)
     if args.rank_etfs:
         run_ranking_workflow(ranking_config)
     if args.model_etf_returns:

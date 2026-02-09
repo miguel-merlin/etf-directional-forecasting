@@ -146,7 +146,51 @@ class UpDownCaptureMetric(BaseMetric):
         return df
 
 
-## mddvol/
+class MacroMetric(BaseMetric):
+    """Base class for metrics that use external macro data."""
+
+    def __init__(self, macro_series: pd.Series, series_name: str):
+        self.macro_series = macro_series
+        self.series_name = series_name
+
+    def align_macro(self, target_index: pd.Index) -> pd.Series:
+        """Align macro data to the target index (typically daily)."""
+        macro_series = self.macro_series.copy()
+        macro_index = pd.to_datetime(macro_series.index)
+        target_index_dt = pd.to_datetime(target_index)
+
+        if macro_index.tz is None and target_index_dt.tz is not None:
+            macro_index = macro_index.tz_localize("UTC")
+        elif macro_index.tz is not None and target_index_dt.tz is None:
+            macro_index = macro_index.tz_localize(None)
+
+        macro_series.index = macro_index
+        aligned = macro_series.reindex(target_index_dt, method="ffill")
+        aligned.index = target_index
+        return aligned
+
+
+class MacroLevelMetric(MacroMetric):
+    """Absolute level of a macro series."""
+
+    def compute(self, prices: pd.Series, returns: pd.Series) -> pd.DataFrame:
+        df = pd.DataFrame(index=prices.index)
+        df[f"macro_{self.series_name}_level"] = self.align_macro(prices.index)
+        return df
+
+
+class MacroDiffMetric(MacroMetric):
+    """Change in level of a macro series over a window."""
+
+    def __init__(self, macro_series: pd.Series, series_name: str, window: int = 60):
+        super().__init__(macro_series, series_name)
+        self.window = window
+
+    def compute(self, prices: pd.Series, returns: pd.Series) -> pd.DataFrame:
+        df = pd.DataFrame(index=prices.index)
+        aligned = self.align_macro(prices.index)
+        df[f"macro_{self.series_name}_diff_{self.window}d"] = aligned.diff(self.window)
+        return df
 
 
 def get_metrics(
@@ -155,9 +199,10 @@ def get_metrics(
     long_window: int,
     vol_windows: List[int],
     volofvol_window: int,
+    macro_data: pd.DataFrame = pd.DataFrame(),
 ) -> List[BaseMetric]:
     """Return a list of all available metric calculator classes."""
-    return [
+    metrics: List[BaseMetric] = [
         VolatilityMetric(lookback_periods),
         ReturnMetric(lookback_periods),
         SharpeMetric(lookback_periods),
@@ -168,3 +213,11 @@ def get_metrics(
         HigherMomentMetric(windows=vol_windows),
         UpDownCaptureMetric(windows=vol_windows),
     ]
+
+    # Add macro metrics if data is available
+    if not macro_data.empty:
+        for col in macro_data.columns:
+            metrics.append(MacroLevelMetric(macro_data[col], col))
+            metrics.append(MacroDiffMetric(macro_data[col], col, window=60))
+
+    return metrics

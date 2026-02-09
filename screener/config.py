@@ -12,6 +12,14 @@ class FetchConfig:
 
 
 @dataclass
+class FetchMacroConfig:
+    """Configuration for fetching macro data from FRED."""
+
+    series_ids: Sequence[str] = ("T10Y2Y", "CPIAUCSL", "GS10", "SP500")
+    output_dir: str = "data/macro"
+
+
+@dataclass
 class RankingConfig:
     """Configuration for ranking stored ETF CSV files."""
 
@@ -37,6 +45,7 @@ class ETFReturnModelingConfig:
     """Configuration for modelling ETF returns."""
 
     data_dir: str = "data/etfs"
+    macro_dir: str = "data/macro"
     results_dir: str = "results"
     target_return_period_months: int = 6
     n_bins: int = 5
