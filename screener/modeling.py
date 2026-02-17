@@ -9,7 +9,16 @@ import pandas as pd
 from scipy import stats
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    brier_score_loss,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+    roc_curve,
+)
 
 from screener.metrics import BaseMetric, get_metrics
 
@@ -55,6 +64,8 @@ class ETFReturnPredictor:
         self.results = {}
         self.metric_summary = pd.DataFrame()
         self.logistic_model = None  # Initialize logistic model
+        self.logistic_metrics: Dict[str, Dict[str, float]] = {}
+        self.logistic_feature_summary = pd.DataFrame()
         self.model_type = model_type  # Store the model type
 
         self.results_dir = results_dir
@@ -601,6 +612,289 @@ class ETFReturnPredictor:
 
         return selected_features
 
+    def _calculate_classification_metrics(
+        self, y_true: pd.Series, y_score: pd.Series
+    ) -> Dict[str, float]:
+        """Compute a robust set of classification metrics from probabilities."""
+        y_pred = (y_score >= 0.5).astype(int)
+        metrics = {
+            "n_samples": float(len(y_true)),
+            "positive_rate": float(y_true.mean()),
+            "predicted_positive_rate": float(y_pred.mean()),
+            "accuracy": float(accuracy_score(y_true, y_pred)),
+            "precision": float(precision_score(y_true, y_pred, zero_division=0)),
+            "recall": float(recall_score(y_true, y_pred, zero_division=0)),
+            "f1": float(f1_score(y_true, y_pred, zero_division=0)),
+            "brier_score": float(brier_score_loss(y_true, y_score)),
+        }
+
+        try:
+            metrics["roc_auc"] = float(roc_auc_score(y_true, y_score))
+        except ValueError:
+            metrics["roc_auc"] = float("nan")
+
+        try:
+            metrics["average_precision"] = float(average_precision_score(y_true, y_score))
+        except ValueError:
+            metrics["average_precision"] = float("nan")
+
+        return metrics
+
+    def _build_logistic_feature_importance(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Create a coefficient-based feature importance table for logistic models."""
+        if self.logistic_model is None:
+            return pd.DataFrame()
+
+        coefs = pd.Series(self.logistic_model.coef_[0], index=X.columns, name="coefficient")
+        std = X.std(ddof=0).replace(0, np.nan)
+        standardized = (coefs * std).fillna(0.0)
+
+        feature_importance = pd.DataFrame(
+            {
+                "feature": X.columns,
+                "coefficient": coefs.values,
+                "standardized_coefficient": standardized.values,
+                "abs_standardized_coefficient": standardized.abs().values,
+                "odds_ratio": np.exp(np.clip(coefs.values, -20, 20)),
+            }
+        ).sort_values("abs_standardized_coefficient", ascending=False)
+
+        return feature_importance
+
+    def _plot_logistic_roc_curve(self, y_true: pd.Series, y_score: pd.Series) -> None:
+        """Save ROC curve for logistic regression diagnostics."""
+        if y_true.nunique() < 2:
+            print("Skipping ROC plot: test labels contain a single class.")
+            return
+
+        fpr, tpr, _ = roc_curve(y_true, y_score)
+        auc_value = roc_auc_score(y_true, y_score)
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.plot(fpr, tpr, linewidth=2, label=f"ROC AUC = {auc_value:.3f}")
+        ax.plot([0, 1], [0, 1], linestyle="--", linewidth=1, color="gray")
+        ax.set_title("Logistic Regression ROC Curve")
+        ax.set_xlabel("False Positive Rate")
+        ax.set_ylabel("True Positive Rate")
+        ax.grid(alpha=0.3)
+        ax.legend(loc="lower right")
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plot_dir, "logistic_roc_curve.png"))
+        plt.close()
+
+    def _plot_logistic_probability_distribution(
+        self, y_true: pd.Series, y_score: pd.Series
+    ) -> None:
+        """Save predicted probability distribution split by true class."""
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.hist(
+            y_score[y_true == 0],
+            bins=25,
+            alpha=0.6,
+            label="True class: 0",
+            color="#1f77b4",
+            density=True,
+        )
+        ax.hist(
+            y_score[y_true == 1],
+            bins=25,
+            alpha=0.6,
+            label="True class: 1",
+            color="#d62728",
+            density=True,
+        )
+        ax.set_title("Logistic Predicted Probability Distribution (Test Set)")
+        ax.set_xlabel("Predicted Probability")
+        ax.set_ylabel("Density")
+        ax.grid(alpha=0.3)
+        ax.legend(loc="upper center")
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plot_dir, "logistic_probability_distribution.png"))
+        plt.close()
+
+    def _plot_logistic_feature_importance(
+        self, feature_importance: pd.DataFrame, top_n: int = 20
+    ) -> None:
+        """Save horizontal bar chart of top coefficient effects."""
+        if feature_importance.empty:
+            return
+
+        top_df = feature_importance.head(top_n).copy()
+        top_df = top_df.sort_values("abs_standardized_coefficient", ascending=True)
+
+        fig, ax = plt.subplots(figsize=(10, max(6, len(top_df) * 0.35)))
+        colors = np.where(top_df["standardized_coefficient"] >= 0, "#2ca02c", "#d62728")
+        ax.barh(top_df["feature"], top_df["standardized_coefficient"], color=colors)
+        ax.axvline(0, color="black", linewidth=1)
+        ax.set_title("Top Logistic Feature Effects (Standardized)")
+        ax.set_xlabel("Standardized Coefficient")
+        ax.set_ylabel("Feature")
+        ax.grid(axis="x", alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plot_dir, "logistic_top_feature_importance.png"))
+        plt.close()
+
+    def _save_logistic_artifacts(
+        self,
+        predictions_df: pd.DataFrame,
+        feature_importance: pd.DataFrame,
+        metrics: Dict[str, Dict[str, float]],
+    ) -> None:
+        """Persist logistic predictions, coefficients, and diagnostics summary."""
+        predictions_path = os.path.join(self.results_dir, "logistic_predictions.csv")
+        predictions_df.to_csv(predictions_path, index=False)
+
+        features_path = os.path.join(self.results_dir, "logistic_feature_importance.csv")
+        feature_importance.to_csv(features_path, index=False)
+
+        summary_path = os.path.join(self.results_dir, "logistic_experiment_summary.txt")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        top_features = feature_importance.head(15)
+
+        with open(summary_path, "w") as f:
+            f.write("=" * 80 + "\n")
+            f.write("ETF SCREENER LOGISTIC REGRESSION SUMMARY\n")
+            f.write(f"Date: {timestamp}\n")
+            f.write("=" * 80 + "\n\n")
+            f.write("DATASET OVERVIEW:\n")
+            f.write(f"- ETFs Analyzed: {', '.join(self.prices.columns)}\n")
+            f.write(f"- Date Range: {self.prices.index.min()} to {self.prices.index.max()}\n")
+            f.write(f"- Total Observations (after cleaning): {len(predictions_df)}\n")
+            f.write(f"- Total Features: {len(feature_importance)}\n\n")
+
+            f.write("METRICS (0.5 threshold):\n")
+            for split_name in ["train", "test", "full_fit"]:
+                split_metrics = metrics.get(split_name, {})
+                if not split_metrics:
+                    continue
+                f.write(f"\n[{split_name.upper()}]\n")
+                for key in [
+                    "n_samples",
+                    "positive_rate",
+                    "predicted_positive_rate",
+                    "roc_auc",
+                    "average_precision",
+                    "brier_score",
+                    "accuracy",
+                    "precision",
+                    "recall",
+                    "f1",
+                ]:
+                    value = split_metrics.get(key, float("nan"))
+                    if np.isnan(value):
+                        rendered = "nan"
+                    elif key == "n_samples":
+                        rendered = str(int(value))
+                    else:
+                        rendered = f"{value:.6f}"
+                    f.write(f"- {key}: {rendered}\n")
+
+            f.write("\nTOP 15 FEATURES (by absolute standardized coefficient):\n")
+            f.write("-" * 80 + "\n")
+            if top_features.empty:
+                f.write("No feature importance available.\n")
+            else:
+                f.write(
+                    top_features[
+                        [
+                            "feature",
+                            "coefficient",
+                            "standardized_coefficient",
+                            "abs_standardized_coefficient",
+                            "odds_ratio",
+                        ]
+                    ].to_string(index=False)
+                )
+                f.write("\n")
+            f.write("-" * 80 + "\n")
+
+        print(f"\n✓ Logistic summary saved to: {summary_path}")
+        print(f"✓ Logistic predictions saved to: {predictions_path}")
+        print(f"✓ Logistic feature importance saved to: {features_path}")
+
+    def _run_logistic_regression_pipeline(self) -> None:
+        """Run logistic training, diagnostics, plots, and artifact logging."""
+        if self.features.empty or self.target.empty:
+            print(
+                "Features or target not calculated. Please run calculate_features and create_target_variable first."
+            )
+            return
+
+        features_flat, target_flat = self._prepare_flat_data()
+        combined_data = pd.merge(features_flat, target_flat, on=["date", "etf"])
+        combined_data = combined_data.replace([np.inf, -np.inf], np.nan).dropna()
+
+        if combined_data.empty:
+            print("No valid data after cleaning for logistic regression.")
+            return
+
+        X = combined_data.drop(columns=["target", "etf", "date"])
+        y = combined_data["target"].astype(int)
+
+        if X.empty or y.empty:
+            print("No valid feature matrix for logistic regression.")
+            return
+
+        if y.nunique() < 2:
+            print("Target has a single class after cleaning; logistic regression requires two classes.")
+            return
+
+        train_idx, test_idx = train_test_split(
+            X.index, test_size=0.3, random_state=42, stratify=y
+        )
+        X_train, X_test = X.loc[train_idx], X.loc[test_idx]
+        y_train, y_test = y.loc[train_idx], y.loc[test_idx]
+
+        # Fit on train split for unbiased diagnostics.
+        self.logistic_model = LogisticRegression(solver="liblinear", random_state=42)
+        self.logistic_model.fit(X_train, y_train)
+
+        train_scores = pd.Series(
+            self.logistic_model.predict_proba(X_train)[:, 1], index=X_train.index
+        )
+        test_scores = pd.Series(
+            self.logistic_model.predict_proba(X_test)[:, 1], index=X_test.index
+        )
+
+        # Refit on full dataset for final coefficients and full-sample predictions.
+        self.logistic_model = LogisticRegression(solver="liblinear", random_state=42)
+        self.logistic_model.fit(X, y)
+        full_scores = pd.Series(self.logistic_model.predict_proba(X)[:, 1], index=X.index)
+
+        split_column = pd.Series("train", index=X.index)
+        split_column.loc[test_idx] = "test"
+
+        eval_scores = pd.Series(index=X.index, dtype=float)
+        eval_scores.loc[train_scores.index] = train_scores
+        eval_scores.loc[test_scores.index] = test_scores
+
+        predictions_df = combined_data[["date", "etf", "target"]].copy()
+        predictions_df["split"] = split_column.values
+        predictions_df["evaluation_probability"] = eval_scores.values
+        predictions_df["full_model_probability"] = full_scores.values
+        predictions_df = predictions_df.sort_values(["date", "etf"])
+
+        feature_importance = self._build_logistic_feature_importance(X)
+
+        metrics = {
+            "train": self._calculate_classification_metrics(y_train, train_scores),
+            "test": self._calculate_classification_metrics(y_test, test_scores),
+            "full_fit": self._calculate_classification_metrics(y, full_scores),
+        }
+
+        self.logistic_metrics = metrics
+        self.logistic_feature_summary = feature_importance
+        self.results["logistic_regression_predictions"] = full_scores
+        self.results["logistic_regression_evaluation_predictions"] = predictions_df
+        self.results["logistic_regression_metrics"] = metrics
+        self.results["logistic_regression_feature_importance"] = feature_importance
+
+        self._plot_logistic_roc_curve(y_test, test_scores)
+        self._plot_logistic_probability_distribution(y_test, test_scores)
+        self._plot_logistic_feature_importance(feature_importance)
+        self._save_logistic_artifacts(predictions_df, feature_importance, metrics)
+        print("Logistic regression predictions and diagnostics generated.")
+
     def model_etf_returns(self):
         """
         Orchestrates the modeling process based on the configured model_type.
@@ -610,40 +904,7 @@ class ETFReturnPredictor:
             self.analyze_all_metrics()
         elif self.model_type == "logistic":
             print("Running logistic regression modeling...")
-            if self.features.empty or self.target.empty:
-                print(
-                    "Features or target not calculated. Please run calculate_features and create_target_variable first."
-                )
-                return
-
-            # Prepare data for logistic regression
-            features_flat, target_flat = self._prepare_flat_data()
-
-            # Drop rows with NaN values in features or target
-            combined_data = pd.merge(
-                features_flat, target_flat, on=["date", "etf"]
-            ).dropna()
-            X = combined_data.drop(
-                columns=["target", "etf", "date"]
-            )  # 'etf' and 'date' are identifiers, not features
-            y = combined_data["target"]
-
-            if X.empty or y.empty:
-                print("No valid data after cleaning for logistic regression.")
-                return
-
-            # Train the model
-            self.train_logistic_regression_model(X, y)
-
-            # If model trained, make predictions
-            if self.logistic_model:
-                predictions = self.predict_logistic_regression(X)
-                self.results["logistic_regression_predictions"] = predictions
-                print("Logistic regression predictions generated.")
-            else:
-                print(
-                    "Logistic regression model could not be trained, no predictions generated."
-                )
+            self._run_logistic_regression_pipeline()
         elif self.model_type == "stepwise":
             print("Running stepwise forward feature selection...")
             if self.features.empty or self.target.empty:

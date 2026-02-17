@@ -93,8 +93,9 @@ def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
         print("\n\nSaving probability plots for each metric (with bin ranges and KL)")
         predictor.plot_metric_probabilities_for_metrics(summary["metric"].tolist())
     elif config.model == ModelType.LOGISTIC:
+        print("\nLogistic Regression modeling complete.")
         print(
-            "\nLogistic Regression modeling complete. No specific plots generated for individual features."
+            f"Saved diagnostics under '{config.results_dir}' and plots under '{config.results_dir}/plots'."
         )
     elif config.model == ModelType.STEPWISE:
         print(
