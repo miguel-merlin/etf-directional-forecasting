@@ -1,4 +1,6 @@
 #!/bin/bash
+# Example usage:
+#   ./scripts/upload_etf_data_s3.bash my-bucket-name ./data
 set -euo pipefail
 
 # -------- DEFAULTS --------

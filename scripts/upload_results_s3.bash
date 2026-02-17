@@ -1,4 +1,6 @@
 #!/bin/bash
+# Example usage:
+#   ./scripts/upload_results_s3.bash my-bucket-name ./results
 set -euo pipefail
 
 # -------- DEFAULTS --------

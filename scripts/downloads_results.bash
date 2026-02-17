@@ -1,4 +1,6 @@
 #!/bin/bash
+# Example usage:
+#   ./scripts/download_results.bash my-bucket-name results-2026-02-10 ./downloads
 set -euo pipefail
 
 # -------- DEFAULTS --------
