@@ -66,6 +66,9 @@ class ETFReturnPredictor:
         self.logistic_model = None  # Initialize logistic model
         self.logistic_metrics: Dict[str, Dict[str, float]] = {}
         self.logistic_feature_summary = pd.DataFrame()
+        self.stepwise_metrics: Dict[str, Dict[str, float]] = {}
+        self.stepwise_feature_summary = pd.DataFrame()
+        self.stepwise_selection_history = pd.DataFrame()
         self.model_type = model_type  # Store the model type
 
         self.results_dir = results_dir
@@ -542,11 +545,7 @@ class ETFReturnPredictor:
 
         # Prepare Data
         features_flat, target_flat = self._prepare_flat_data()
-
-        # Align and Clean
-        combined_data = pd.merge(
-            features_flat, target_flat, on=["date", "etf"]
-        ).dropna()
+        combined_data = pd.merge(features_flat, target_flat, on=["date", "etf"])
         combined_data = combined_data.replace([np.inf, -np.inf], np.nan).dropna()
 
         if combined_data.empty:
@@ -554,56 +553,31 @@ class ETFReturnPredictor:
             return []
 
         X = combined_data.drop(columns=["target", "etf", "date"])
-        y = combined_data["target"]
+        y = combined_data["target"].astype(int)
 
-        # Train/Test Split
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.3, random_state=42, stratify=y
+        if y.nunique() < 2:
+            print("Target has a single class after cleaning; feature selection requires two classes.")
+            return []
+
+        train_idx, test_idx = train_test_split(
+            X.index, test_size=0.3, random_state=42, stratify=y
         )
+        X_train, X_test = X.loc[train_idx], X.loc[test_idx]
+        y_train, y_test = y.loc[train_idx], y.loc[test_idx]
 
-        selected_features = []
-        remaining_features = list(X.columns)
-        current_best_auc = 0.5
-
-        print(
-            f"\nStarting Forward Selection with {len(remaining_features)} candidate features..."
+        selected_features, history = self._forward_selection_with_split(
+            X_train=X_train,
+            X_test=X_test,
+            y_train=y_train,
+            y_test=y_test,
+            max_features=max_features,
+            min_auc_improvement=min_auc_improvement,
+            verbose=True,
         )
-        print(f"{'Step':<5} {'Feature Added':<30} {'New AUC':<10} {'Improvement':<10}")
-        print("-" * 60)
-
-        for step in range(max_features):
-            step_best_auc = -1
-            step_best_feature = None
-
-            for feature in remaining_features:
-                candidate_features = selected_features + [feature]
-
-                model = LogisticRegression(solver="liblinear", random_state=42)
-                model.fit(X_train[candidate_features], y_train)
-
-                # Predict probabilities
-                y_pred_proba = model.predict_proba(X_test[candidate_features])[:, 1]
-                auc = roc_auc_score(y_test, y_pred_proba)
-
-                if auc > step_best_auc:
-                    step_best_auc = auc
-                    step_best_feature = feature
-
-            # Check for improvement
-            improvement = step_best_auc - current_best_auc
-            if step_best_feature and improvement > min_auc_improvement:
-                selected_features.append(step_best_feature)
-                remaining_features.remove(step_best_feature)
-                current_best_auc = step_best_auc
-                print(
-                    f"{step+1:<5} {step_best_feature:<30} {current_best_auc:.4f}     +{improvement:.4f}"
-                )
-            else:
-                print(f"Stopping: No feature improved AUC by > {min_auc_improvement}")
-                break
 
         print("-" * 60)
         print(f"Selected {len(selected_features)} features: {selected_features}")
+        self.stepwise_selection_history = pd.DataFrame(history)
 
         # Train final model on selected features using ALL available data
         if selected_features:
@@ -611,6 +585,70 @@ class ETFReturnPredictor:
             self.train_logistic_regression_model(X[selected_features], y)
 
         return selected_features
+
+    def _forward_selection_with_split(
+        self,
+        X_train: pd.DataFrame,
+        X_test: pd.DataFrame,
+        y_train: pd.Series,
+        y_test: pd.Series,
+        max_features: int = 10,
+        min_auc_improvement: float = 0.001,
+        verbose: bool = False,
+    ) -> Tuple[List[str], List[Dict[str, float]]]:
+        """Perform greedy forward selection on a fixed train/test split."""
+        selected_features: List[str] = []
+        remaining_features = list(X_train.columns)
+        current_best_auc = 0.5
+        selection_history: List[Dict[str, float]] = []
+
+        if verbose:
+            print(
+                f"\nStarting Forward Selection with {len(remaining_features)} candidate features..."
+            )
+            print(f"{'Step':<5} {'Feature Added':<30} {'New AUC':<10} {'Improvement':<10}")
+            print("-" * 60)
+
+        for step in range(max_features):
+            step_best_auc = -1.0
+            step_best_feature: Optional[str] = None
+
+            for feature in remaining_features:
+                candidate_features = selected_features + [feature]
+                model = LogisticRegression(solver="liblinear", random_state=42)
+                model.fit(X_train[candidate_features], y_train)
+                y_pred_proba = model.predict_proba(X_test[candidate_features])[:, 1]
+                auc = roc_auc_score(y_test, y_pred_proba)
+
+                if auc > step_best_auc:
+                    step_best_auc = float(auc)
+                    step_best_feature = feature
+
+            improvement = step_best_auc - current_best_auc
+            if step_best_feature and improvement > min_auc_improvement:
+                selected_features.append(step_best_feature)
+                remaining_features.remove(step_best_feature)
+                current_best_auc = step_best_auc
+                selection_history.append(
+                    {
+                        "step": float(step + 1),
+                        "feature": step_best_feature,
+                        "auc": float(current_best_auc),
+                        "improvement": float(improvement),
+                    }
+                )
+                if verbose:
+                    print(
+                        f"{step+1:<5} {step_best_feature:<30} {current_best_auc:.4f}     +{improvement:.4f}"
+                    )
+            else:
+                if verbose:
+                    print(
+                        f"Stopping: No feature improved AUC by > {min_auc_improvement}"
+                    )
+                break
+
+        return selected_features, selection_history
 
     def _calculate_classification_metrics(
         self, y_true: pd.Series, y_score: pd.Series
@@ -812,6 +850,186 @@ class ETFReturnPredictor:
         print(f"✓ Logistic predictions saved to: {predictions_path}")
         print(f"✓ Logistic feature importance saved to: {features_path}")
 
+    def _plot_stepwise_selection_curve(self, selection_history: pd.DataFrame) -> None:
+        """Save AUC progression across forward-selection steps."""
+        if selection_history.empty:
+            return
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.plot(selection_history["step"], selection_history["auc"], "o-", linewidth=2)
+        ax.set_title("Stepwise Forward Selection AUC Progression")
+        ax.set_xlabel("Step")
+        ax.set_ylabel("Validation ROC-AUC")
+        ax.grid(alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plot_dir, "stepwise_selection_auc_curve.png"))
+        plt.close()
+
+    def _plot_stepwise_roc_curve(self, y_true: pd.Series, y_score: pd.Series) -> None:
+        """Save ROC curve for stepwise model."""
+        if y_true.nunique() < 2:
+            print("Skipping stepwise ROC plot: test labels contain a single class.")
+            return
+
+        fpr, tpr, _ = roc_curve(y_true, y_score)
+        auc_value = roc_auc_score(y_true, y_score)
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.plot(fpr, tpr, linewidth=2, label=f"ROC AUC = {auc_value:.3f}")
+        ax.plot([0, 1], [0, 1], linestyle="--", linewidth=1, color="gray")
+        ax.set_title("Stepwise Logistic ROC Curve")
+        ax.set_xlabel("False Positive Rate")
+        ax.set_ylabel("True Positive Rate")
+        ax.grid(alpha=0.3)
+        ax.legend(loc="lower right")
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plot_dir, "stepwise_roc_curve.png"))
+        plt.close()
+
+    def _plot_stepwise_probability_distribution(
+        self, y_true: pd.Series, y_score: pd.Series
+    ) -> None:
+        """Save stepwise predicted probability distribution split by true class."""
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.hist(
+            y_score[y_true == 0],
+            bins=25,
+            alpha=0.6,
+            label="True class: 0",
+            color="#1f77b4",
+            density=True,
+        )
+        ax.hist(
+            y_score[y_true == 1],
+            bins=25,
+            alpha=0.6,
+            label="True class: 1",
+            color="#d62728",
+            density=True,
+        )
+        ax.set_title("Stepwise Predicted Probability Distribution (Test Set)")
+        ax.set_xlabel("Predicted Probability")
+        ax.set_ylabel("Density")
+        ax.grid(alpha=0.3)
+        ax.legend(loc="upper center")
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plot_dir, "stepwise_probability_distribution.png"))
+        plt.close()
+
+    def _plot_stepwise_feature_importance(
+        self, feature_importance: pd.DataFrame, top_n: int = 20
+    ) -> None:
+        """Save horizontal bar chart of top stepwise coefficient effects."""
+        if feature_importance.empty:
+            return
+
+        top_df = feature_importance.head(top_n).copy()
+        top_df = top_df.sort_values("abs_standardized_coefficient", ascending=True)
+
+        fig, ax = plt.subplots(figsize=(10, max(6, len(top_df) * 0.35)))
+        colors = np.where(top_df["standardized_coefficient"] >= 0, "#2ca02c", "#d62728")
+        ax.barh(top_df["feature"], top_df["standardized_coefficient"], color=colors)
+        ax.axvline(0, color="black", linewidth=1)
+        ax.set_title("Stepwise Top Feature Effects (Standardized)")
+        ax.set_xlabel("Standardized Coefficient")
+        ax.set_ylabel("Feature")
+        ax.grid(axis="x", alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plot_dir, "stepwise_top_feature_importance.png"))
+        plt.close()
+
+    def _save_stepwise_artifacts(
+        self,
+        predictions_df: pd.DataFrame,
+        feature_importance: pd.DataFrame,
+        selection_history: pd.DataFrame,
+        selected_features: List[str],
+        metrics: Dict[str, Dict[str, float]],
+    ) -> None:
+        """Persist stepwise outputs: predictions, feature effects, and selection path."""
+        predictions_path = os.path.join(self.results_dir, "stepwise_predictions.csv")
+        predictions_df.to_csv(predictions_path, index=False)
+
+        features_path = os.path.join(self.results_dir, "stepwise_feature_importance.csv")
+        feature_importance.to_csv(features_path, index=False)
+
+        history_path = os.path.join(self.results_dir, "stepwise_selection_history.csv")
+        selection_history.to_csv(history_path, index=False)
+
+        summary_path = os.path.join(self.results_dir, "stepwise_experiment_summary.txt")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        top_features = feature_importance.head(15)
+
+        with open(summary_path, "w") as f:
+            f.write("=" * 80 + "\n")
+            f.write("ETF SCREENER STEPWISE LOGISTIC SUMMARY\n")
+            f.write(f"Date: {timestamp}\n")
+            f.write("=" * 80 + "\n\n")
+            f.write("DATASET OVERVIEW:\n")
+            f.write(f"- ETFs Analyzed: {', '.join(self.prices.columns)}\n")
+            f.write(f"- Date Range: {self.prices.index.min()} to {self.prices.index.max()}\n")
+            f.write(f"- Total Observations (after cleaning): {len(predictions_df)}\n")
+            f.write(f"- Selected Features ({len(selected_features)}): {', '.join(selected_features)}\n\n")
+
+            f.write("METRICS (0.5 threshold):\n")
+            for split_name in ["train", "test", "full_fit"]:
+                split_metrics = metrics.get(split_name, {})
+                if not split_metrics:
+                    continue
+                f.write(f"\n[{split_name.upper()}]\n")
+                for key in [
+                    "n_samples",
+                    "positive_rate",
+                    "predicted_positive_rate",
+                    "roc_auc",
+                    "average_precision",
+                    "brier_score",
+                    "accuracy",
+                    "precision",
+                    "recall",
+                    "f1",
+                ]:
+                    value = split_metrics.get(key, float("nan"))
+                    if np.isnan(value):
+                        rendered = "nan"
+                    elif key == "n_samples":
+                        rendered = str(int(value))
+                    else:
+                        rendered = f"{value:.6f}"
+                    f.write(f"- {key}: {rendered}\n")
+
+            f.write("\nSELECTION HISTORY:\n")
+            f.write("-" * 80 + "\n")
+            if selection_history.empty:
+                f.write("No selection steps recorded.\n")
+            else:
+                f.write(selection_history.to_string(index=False))
+                f.write("\n")
+
+            f.write("\nTOP STEPWISE FEATURES (by absolute standardized coefficient):\n")
+            f.write("-" * 80 + "\n")
+            if top_features.empty:
+                f.write("No feature importance available.\n")
+            else:
+                f.write(
+                    top_features[
+                        [
+                            "feature",
+                            "coefficient",
+                            "standardized_coefficient",
+                            "abs_standardized_coefficient",
+                            "odds_ratio",
+                        ]
+                    ].to_string(index=False)
+                )
+                f.write("\n")
+            f.write("-" * 80 + "\n")
+
+        print(f"\n✓ Stepwise summary saved to: {summary_path}")
+        print(f"✓ Stepwise predictions saved to: {predictions_path}")
+        print(f"✓ Stepwise selection history saved to: {history_path}")
+        print(f"✓ Stepwise feature importance saved to: {features_path}")
+
     def _run_logistic_regression_pipeline(self) -> None:
         """Run logistic training, diagnostics, plots, and artifact logging."""
         if self.features.empty or self.target.empty:
@@ -895,6 +1113,108 @@ class ETFReturnPredictor:
         self._save_logistic_artifacts(predictions_df, feature_importance, metrics)
         print("Logistic regression predictions and diagnostics generated.")
 
+    def _run_stepwise_pipeline(self) -> None:
+        """Run stepwise forward selection, diagnostics, plots, and artifact logging."""
+        if self.features.empty or self.target.empty:
+            print(
+                "Features or target not calculated. Please run calculate_features and create_target_variable first."
+            )
+            return
+
+        features_flat, target_flat = self._prepare_flat_data()
+        combined_data = pd.merge(features_flat, target_flat, on=["date", "etf"])
+        combined_data = combined_data.replace([np.inf, -np.inf], np.nan).dropna()
+
+        if combined_data.empty:
+            print("No valid data after cleaning for stepwise modeling.")
+            return
+
+        X = combined_data.drop(columns=["target", "etf", "date"])
+        y = combined_data["target"].astype(int)
+
+        if X.empty or y.empty:
+            print("No valid feature matrix for stepwise modeling.")
+            return
+
+        if y.nunique() < 2:
+            print("Target has a single class after cleaning; stepwise modeling requires two classes.")
+            return
+
+        train_idx, test_idx = train_test_split(
+            X.index, test_size=0.3, random_state=42, stratify=y
+        )
+        X_train, X_test = X.loc[train_idx], X.loc[test_idx]
+        y_train, y_test = y.loc[train_idx], y.loc[test_idx]
+
+        selected, history = self._forward_selection_with_split(
+            X_train=X_train,
+            X_test=X_test,
+            y_train=y_train,
+            y_test=y_test,
+            verbose=True,
+        )
+        if not selected:
+            print("No features selected by stepwise procedure.")
+            return
+
+        selection_history_df = pd.DataFrame(history)
+        self.stepwise_selection_history = selection_history_df
+
+        eval_model = LogisticRegression(solver="liblinear", random_state=42)
+        eval_model.fit(X_train[selected], y_train)
+        train_scores = pd.Series(
+            eval_model.predict_proba(X_train[selected])[:, 1], index=X_train.index
+        )
+        test_scores = pd.Series(
+            eval_model.predict_proba(X_test[selected])[:, 1], index=X_test.index
+        )
+
+        self.logistic_model = LogisticRegression(solver="liblinear", random_state=42)
+        self.logistic_model.fit(X[selected], y)
+        full_scores = pd.Series(self.logistic_model.predict_proba(X[selected])[:, 1], index=X.index)
+
+        split_column = pd.Series("train", index=X.index)
+        split_column.loc[test_idx] = "test"
+
+        eval_scores = pd.Series(index=X.index, dtype=float)
+        eval_scores.loc[train_scores.index] = train_scores
+        eval_scores.loc[test_scores.index] = test_scores
+
+        predictions_df = combined_data[["date", "etf", "target"]].copy()
+        predictions_df["split"] = split_column.values
+        predictions_df["evaluation_probability"] = eval_scores.values
+        predictions_df["full_model_probability"] = full_scores.values
+        predictions_df = predictions_df.sort_values(["date", "etf"])
+
+        feature_importance = self._build_logistic_feature_importance(X[selected])
+        metrics = {
+            "train": self._calculate_classification_metrics(y_train, train_scores),
+            "test": self._calculate_classification_metrics(y_test, test_scores),
+            "full_fit": self._calculate_classification_metrics(y, full_scores),
+        }
+
+        self.stepwise_metrics = metrics
+        self.stepwise_feature_summary = feature_importance
+        self.results["stepwise_selected_features"] = selected
+        self.results["stepwise_predictions"] = full_scores
+        self.results["stepwise_evaluation_predictions"] = predictions_df
+        self.results["stepwise_metrics"] = metrics
+        self.results["stepwise_feature_importance"] = feature_importance
+        self.results["stepwise_selection_history"] = selection_history_df
+
+        self._plot_stepwise_roc_curve(y_test, test_scores)
+        self._plot_stepwise_probability_distribution(y_test, test_scores)
+        self._plot_stepwise_feature_importance(feature_importance)
+        self._plot_stepwise_selection_curve(selection_history_df)
+        self._save_stepwise_artifacts(
+            predictions_df=predictions_df,
+            feature_importance=feature_importance,
+            selection_history=selection_history_df,
+            selected_features=selected,
+            metrics=metrics,
+        )
+        print("Stepwise model predictions and diagnostics generated.")
+
     def model_etf_returns(self):
         """
         Orchestrates the modeling process based on the configured model_type.
@@ -907,21 +1227,7 @@ class ETFReturnPredictor:
             self._run_logistic_regression_pipeline()
         elif self.model_type == "stepwise":
             print("Running stepwise forward feature selection...")
-            if self.features.empty or self.target.empty:
-                print(
-                    "Features or target not calculated. Please run calculate_features and create_target_variable first."
-                )
-                return
-
-            selected = self.perform_forward_selection()
-            if selected:
-                # Predictions are made by the model trained at the end of perform_forward_selection
-                # We just need to grab the right columns from X
-                features_flat = self.features.copy()
-                X = features_flat[selected].replace([np.inf, -np.inf], np.nan).fillna(0)
-                predictions = self.predict_logistic_regression(X)
-                self.results["stepwise_predictions"] = predictions
-                print("Stepwise model predictions generated.")
+            self._run_stepwise_pipeline()
 
         else:
             print(f"Unknown model type: {self.model_type}")

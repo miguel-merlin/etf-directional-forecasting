@@ -98,8 +98,9 @@ def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
             f"Saved diagnostics under '{config.results_dir}' and plots under '{config.results_dir}/plots'."
         )
     elif config.model == ModelType.STEPWISE:
+        print("\nStepwise Feature Selection complete.")
         print(
-            "\nStepwise Feature Selection complete. Check the output above for selected features and AUC improvement."
+            f"Saved diagnostics under '{config.results_dir}' and plots under '{config.results_dir}/plots'."
         )
 
 
