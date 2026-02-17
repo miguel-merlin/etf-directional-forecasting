@@ -103,3 +103,26 @@ In high-dimensional feature spaces (technical + macro indicators), we use **Forw
 2.  **Greedy Search:** Test every available feature not already in the model.
 3.  **Evaluation:** Select the feature that maximizes the Area Under the ROC Curve (ROC-AUC) on a test set.
 4.  **Termination:** Stop when no remaining feature improves the AUC by more than a threshold (default 0.001) or a maximum number of features is reached.
+
+### Stepwise Diagnostics and Outputs
+The stepwise pipeline saves artifacts for both model quality and selection transparency:
+
+1.  **Performance summary (`stepwise_experiment_summary.txt`)**
+    - Reports selected features.
+    - Includes train, test, and full-fit metrics (ROC-AUC, AP, Brier, accuracy, precision, recall, F1).
+    - Includes the full step-by-step feature selection history.
+
+2.  **Prediction-level output (`stepwise_predictions.csv`)**
+    - Contains `date`, `etf`, `target`, and split labels (`train`/`test`).
+    - Stores both evaluation probabilities and full-fit probabilities.
+    - Supports ETF-level and regime-level error analysis.
+
+3.  **Selection and coefficient outputs**
+    - `stepwise_selection_history.csv`: feature added at each step, updated AUC, and incremental improvement.
+    - `stepwise_feature_importance.csv`: coefficients, standardized effects, and odds ratios for selected features.
+
+4.  **Diagnostic plots (`results/plots/`)**
+    - ROC curve (`stepwise_roc_curve.png`).
+    - Predicted probability distributions by class (`stepwise_probability_distribution.png`).
+    - Top selected-feature effects (`stepwise_top_feature_importance.png`).
+    - AUC progression during forward selection (`stepwise_selection_auc_curve.png`).

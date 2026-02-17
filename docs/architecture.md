@@ -45,11 +45,13 @@ The system operates via three primary workflows which can be executed independen
     4.  **Statistical Analysis & Modeling:**
         *   **Enumeration Mode (Default):** Discretizes metrics into quantile bins and estimates $P(Return > 0 | Bin)$ using Wilson Score Intervals.
         *   **Logistic Regression Mode:** Trains a binary classifier on the full feature set, evaluates train/test/full-fit diagnostics, and saves coefficient-based interpretability artifacts.
-        *   **Stepwise Mode (Forward Selection):** Greedily adds features to a logistic model to maximize ROC-AUC.
+        *   **Stepwise Mode (Forward Selection):** Greedily adds features to a logistic model to maximize ROC-AUC, then saves model diagnostics and the selection path.
     5.  **Output:** 
         *   **Enumeration artifacts:** `results/experiment_summary.txt`, `results/plots/*probability*.png`, and `results/*_bin_details.txt`.
         *   **Logistic artifacts:** `results/logistic_experiment_summary.txt`, `results/logistic_predictions.csv`, `results/logistic_feature_importance.csv`.
         *   **Logistic diagnostic plots:** `results/plots/logistic_roc_curve.png`, `results/plots/logistic_probability_distribution.png`, `results/plots/logistic_top_feature_importance.png`.
+        *   **Stepwise artifacts:** `results/stepwise_experiment_summary.txt`, `results/stepwise_predictions.csv`, `results/stepwise_feature_importance.csv`, `results/stepwise_selection_history.csv`.
+        *   **Stepwise diagnostic plots:** `results/plots/stepwise_roc_curve.png`, `results/plots/stepwise_probability_distribution.png`, `results/plots/stepwise_top_feature_importance.png`, `results/plots/stepwise_selection_auc_curve.png`.
 
 ### Phase 3: Ranking (`--rank-etfs`, `--rank-predictive-metrics`)
 *   **Goal:** Provide actionable lists of ETFs or Metrics.
@@ -83,11 +85,15 @@ project_root/
 │   ├── etfs/            # Individual ticker CSVs (fetched data)
 │   └── ...
 ├── results/
-│   ├── plots/           # Enumeration + logistic diagnostic plots (PNGs)
+│   ├── plots/           # Enumeration + logistic + stepwise diagnostic plots (PNGs)
 │   ├── experiment_summary.txt
 │   ├── logistic_experiment_summary.txt
 │   ├── logistic_predictions.csv
-│   └── logistic_feature_importance.csv
+│   ├── logistic_feature_importance.csv
+│   ├── stepwise_experiment_summary.txt
+│   ├── stepwise_predictions.csv
+│   ├── stepwise_feature_importance.csv
+│   └── stepwise_selection_history.csv
 ├── screener/            # Source code
 ├── docs/                # Documentation
 └── etf_rankings.csv     # Output of the ranking workflow

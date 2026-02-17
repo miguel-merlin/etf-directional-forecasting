@@ -431,8 +431,14 @@ logistic outputs. Specifically, it writes:
     \item diagnostic plots under \texttt{results/plots/}: ROC curve, probability distributions by class, and top feature effects.
 \end{itemize}
 If \texttt{--model-type stepwise} is selected, the pipeline performs
-forward feature selection to maximize ROC-AUC and reports the chosen features and
-incremental AUC improvements.
+forward feature selection to maximize ROC-AUC and saves dedicated stepwise outputs:
+\begin{itemize}
+    \item \texttt{stepwise\_experiment\_summary.txt} with selected features, train/test/full-fit metrics, and the feature-addition path;
+    \item \texttt{stepwise\_predictions.csv} with per-observation probabilities and split labels;
+    \item \texttt{stepwise\_feature\_importance.csv} with coefficients, standardized coefficients, and odds ratios for selected features;
+    \item \texttt{stepwise\_selection\_history.csv} with per-step AUC and incremental improvement;
+    \item diagnostic plots under \texttt{results/plots/}: ROC curve, probability distributions by class, top selected-feature effects, and AUC progression across steps.
+\end{itemize}
 
 For each metric, we produce a plot with:
 \begin{itemize}
@@ -474,6 +480,16 @@ Feature interpretation is coefficient-based:
     \item Negative coefficients decrease log-odds.
     \item Standardized coefficients provide scale-adjusted effect sizes for ranking.
     \item Odds ratios map coefficients into multiplicative odds changes.
+\end{itemize}
+
+\subsection{Stepwise Diagnostics and Interpretation}
+
+For stepwise mode, diagnostics are interpreted similarly to logistic mode, but with an additional emphasis on feature selection dynamics:
+\begin{itemize}
+    \item \textbf{Selection path:} inspect \texttt{stepwise\_selection\_history.csv} to verify whether each added feature provides meaningful incremental ROC-AUC improvement.
+    \item \textbf{Held-out performance:} prioritize test-split ROC-AUC, average precision, and Brier score from \texttt{stepwise\_experiment\_summary.txt}.
+    \item \textbf{Stability check:} compare train vs test metrics to detect overfitting induced by aggressive feature addition.
+    \item \textbf{Interpretability:} use \texttt{stepwise\_feature\_importance.csv} and the top-feature plot to understand direction and magnitude of selected signals.
 \end{itemize}
 
 \section{Extensions and Future Work}

@@ -21,7 +21,7 @@ ETF screener that consumes locally stored price histories, computes common risk/
 | `screener/config.py` | Typed configuration containers for all CLI workflows. |
 | `screener/utils.py` | I/O helpers for Yahoo Finance, FRED, and local CSV parsing. |
 | `data/` | Data store for `etfs/` price histories and `macro/` indicators. |
-| `results/` | Output directory for modeling artifacts (plots, summaries, bin details, logistic diagnostics). |
+| `results/` | Output directory for modeling artifacts (plots, summaries, bin details, logistic/stepwise diagnostics). |
 
 ## Documentation
 - [Architecture & Pipeline](docs/architecture.md): Detailed overview of the system design and data flow.
@@ -73,7 +73,7 @@ python3 -m screener.main --model-etf-returns \
 **Model Types:**
 - `enumeration` (default) – Quantile-based binning to estimate conditional probabilities $P(Return > 0 | Bin)$.
 - `logistic` – Trains a Logistic Regression classifier on all available features and saves diagnostics/plots.
-- `stepwise` – Performs forward feature selection to find the most predictive subset of indicators using ROC-AUC.
+- `stepwise` – Performs forward feature selection to find the most predictive subset of indicators using ROC-AUC and saves selection diagnostics.
 
 **What you get (`enumeration`):**
 - **Probability Plots:** Visualizations in `results/plots/` showing the relationship between metric bins and return probabilities.
@@ -86,6 +86,13 @@ python3 -m screener.main --model-etf-returns \
 - **Row-Level Predictions:** `results/logistic_predictions.csv` with `date`, `etf`, `target`, `split`, `evaluation_probability`, and `full_model_probability`.
 - **Feature Importance:** `results/logistic_feature_importance.csv` with coefficients, standardized coefficients, absolute standardized effect, and odds ratios.
 - **Diagnostic Plots:** `results/plots/logistic_roc_curve.png`, `results/plots/logistic_probability_distribution.png`, and `results/plots/logistic_top_feature_importance.png`.
+
+**What you get (`stepwise`):**
+- **Stepwise Summary:** `results/stepwise_experiment_summary.txt` with selected features, train/test/full-fit metrics, and selection history.
+- **Row-Level Predictions:** `results/stepwise_predictions.csv` with `date`, `etf`, `target`, `split`, `evaluation_probability`, and `full_model_probability`.
+- **Feature Importance:** `results/stepwise_feature_importance.csv` for selected-feature coefficients and odds ratios.
+- **Selection Path:** `results/stepwise_selection_history.csv` with per-step chosen feature, ROC-AUC, and incremental improvement.
+- **Diagnostic Plots:** `results/plots/stepwise_roc_curve.png`, `results/plots/stepwise_probability_distribution.png`, `results/plots/stepwise_top_feature_importance.png`, and `results/plots/stepwise_selection_auc_curve.png`.
 
 ## Metrics explained
 All returns assume trading days and use percentages unless noted otherwise.
