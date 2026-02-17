@@ -21,7 +21,7 @@ ETF screener that consumes locally stored price histories, computes common risk/
 | `screener/config.py` | Typed configuration containers for all CLI workflows. |
 | `screener/utils.py` | I/O helpers for Yahoo Finance, FRED, and local CSV parsing. |
 | `data/` | Data store for `etfs/` price histories and `macro/` indicators. |
-| `results/` | Output directory for probability plots, bin details, and experiment summaries. |
+| `results/` | Output directory for modeling artifacts (plots, summaries, bin details, logistic diagnostics). |
 
 ## Documentation
 - [Architecture & Pipeline](docs/architecture.md): Detailed overview of the system design and data flow.
@@ -72,14 +72,20 @@ python3 -m screener.main --model-etf-returns \
 
 **Model Types:**
 - `enumeration` (default) – Quantile-based binning to estimate conditional probabilities $P(Return > 0 | Bin)$.
-- `logistic` – Trains a Logistic Regression classifier on all available features.
+- `logistic` – Trains a Logistic Regression classifier on all available features and saves diagnostics/plots.
 - `stepwise` – Performs forward feature selection to find the most predictive subset of indicators using ROC-AUC.
 
-**What you get:**
+**What you get (`enumeration`):**
 - **Probability Plots:** Visualizations in `results/plots/` showing the relationship between metric bins and return probabilities.
 - **Experiment Summary:** A `results/experiment_summary.txt` file containing metadata, analyzed variables, and top performing factors.
 - **Bin Details:** Individual `.txt` files in `results/` for each metric detailing the probability distribution across bins.
 - **Information Gain (IG):** A ranking of metrics based on how much they reduce uncertainty about future returns.
+
+**What you get (`logistic`):**
+- **Logistic Summary:** `results/logistic_experiment_summary.txt` with train/test/full-fit metrics (ROC-AUC, AP, Brier, accuracy, precision, recall, F1) and top features.
+- **Row-Level Predictions:** `results/logistic_predictions.csv` with `date`, `etf`, `target`, `split`, `evaluation_probability`, and `full_model_probability`.
+- **Feature Importance:** `results/logistic_feature_importance.csv` with coefficients, standardized coefficients, absolute standardized effect, and odds ratios.
+- **Diagnostic Plots:** `results/plots/logistic_roc_curve.png`, `results/plots/logistic_probability_distribution.png`, and `results/plots/logistic_top_feature_importance.png`.
 
 ## Metrics explained
 All returns assume trading days and use percentages unless noted otherwise.

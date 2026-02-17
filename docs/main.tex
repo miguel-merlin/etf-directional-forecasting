@@ -422,8 +422,15 @@ candidate metric $M_t$ for the ETF universe:
 \subsection{Visualization and Interpretation}
 
 If \texttt{--model-type logistic} is selected, the pipeline trains a binary classifier
-on the full feature set and reports model diagnostics without generating per-metric
-probability plots. If \texttt{--model-type stepwise} is selected, the pipeline performs
+on the full feature set, evaluates train/test/full-fit diagnostics, and saves dedicated
+logistic outputs. Specifically, it writes:
+\begin{itemize}
+    \item \texttt{logistic\_experiment\_summary.txt} with ROC-AUC, average precision, Brier score, accuracy, precision, recall, and F1;
+    \item \texttt{logistic\_predictions.csv} with per-observation probabilities and split labels;
+    \item \texttt{logistic\_feature\_importance.csv} with coefficients, standardized coefficients, and odds ratios;
+    \item diagnostic plots under \texttt{results/plots/}: ROC curve, probability distributions by class, and top feature effects.
+\end{itemize}
+If \texttt{--model-type stepwise} is selected, the pipeline performs
 forward feature selection to maximize ROC-AUC and reports the chosen features and
 incremental AUC improvements.
 
@@ -450,6 +457,24 @@ In addition, summary tables can be constructed to compare multiple metrics side 
     \item Minimum and maximum $\hat{p}_b$ across bins.
 \end{itemize}
 These statistics can be used to rank metrics in terms of how strongly and reliably they shift the odds of a positive 6-month return.
+
+\subsection{Logistic Diagnostics and Interpretation}
+
+For logistic mode, diagnostics should be interpreted primarily on the held-out test split:
+\begin{itemize}
+    \item \textbf{ROC-AUC:} ranking quality of predicted probabilities.
+    \item \textbf{Average Precision:} performance under class imbalance.
+    \item \textbf{Brier Score:} calibration-sensitive probability error (lower is better).
+    \item \textbf{Precision/Recall/F1:} threshold-dependent behavior at the default cutoff.
+\end{itemize}
+
+Feature interpretation is coefficient-based:
+\begin{itemize}
+    \item Positive coefficients increase log-odds of a positive 6-month return.
+    \item Negative coefficients decrease log-odds.
+    \item Standardized coefficients provide scale-adjusted effect sizes for ranking.
+    \item Odds ratios map coefficients into multiplicative odds changes.
+\end{itemize}
 
 \section{Extensions and Future Work}
 \label{sec:extensions}

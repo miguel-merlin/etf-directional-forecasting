@@ -71,6 +71,30 @@ A hypothesis test to check if the distribution of positive/negative outcomes dep
 ## 5. Parametric Extension: Logistic Regression
 While binning is non-parametric, the framework supports **Logistic Regression** for continuous modeling: $P(I_{t}=1 | M_{t}) = \sigma(\beta_{0} + \beta_{1}M_{t})$.
 
+### Logistic Diagnostics and Outputs
+The logistic pipeline now produces explicit diagnostics and artifacts that mirror the enumeration workflow's emphasis on interpretability:
+
+1.  **Performance summary (`logistic_experiment_summary.txt`)**
+    - Includes train, test, and full-fit metrics:
+    - ROC-AUC, Average Precision, Brier score, accuracy, precision, recall, and F1.
+    - Reports class prevalence and predicted-positive prevalence to detect threshold bias.
+
+2.  **Prediction-level output (`logistic_predictions.csv`)**
+    - Contains `date`, `etf`, `target`, and split labels (`train`/`test`).
+    - Stores both evaluation probabilities (from split-specific model evaluation) and full-fit probabilities.
+    - Enables calibration checks and error analysis by ETF and time period.
+
+3.  **Coefficient interpretability (`logistic_feature_importance.csv`)**
+    - Raw coefficient (effect on log-odds),
+    - Standardized coefficient (scale-adjusted effect),
+    - Absolute standardized coefficient (ranking by effect size),
+    - Odds ratio (multiplicative odds impact).
+
+4.  **Diagnostic plots (`results/plots/`)**
+    - ROC curve (`logistic_roc_curve.png`) for ranking quality.
+    - Predicted probability distributions by class (`logistic_probability_distribution.png`) for class separation.
+    - Top standardized feature effects (`logistic_top_feature_importance.png`) for interpretability.
+
 ### Stepwise Forward Feature Selection
 In high-dimensional feature spaces (technical + macro indicators), we use **Forward Selection** to identify the most predictive subset of variables. 
 

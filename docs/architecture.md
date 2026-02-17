@@ -44,11 +44,12 @@ The system operates via three primary workflows which can be executed independen
         *   `MacroMetric` uses `align_macro` to map low-frequency macro data (monthly/quarterly) to daily ETF price indexes.
     4.  **Statistical Analysis & Modeling:**
         *   **Enumeration Mode (Default):** Discretizes metrics into quantile bins and estimates $P(Return > 0 | Bin)$ using Wilson Score Intervals.
-        *   **Logistic Regression Mode:** Trains a binary classifier on the full feature set.
+        *   **Logistic Regression Mode:** Trains a binary classifier on the full feature set, evaluates train/test/full-fit diagnostics, and saves coefficient-based interpretability artifacts.
         *   **Stepwise Mode (Forward Selection):** Greedily adds features to a logistic model to maximize ROC-AUC.
     5.  **Output:** 
-        *   Generates a `results/experiment_summary.txt` with system-wide metadata.
-        *   Saves `results/plots/` (probability curves) and `results/*.txt` (bin-level distribution details).
+        *   **Enumeration artifacts:** `results/experiment_summary.txt`, `results/plots/*probability*.png`, and `results/*_bin_details.txt`.
+        *   **Logistic artifacts:** `results/logistic_experiment_summary.txt`, `results/logistic_predictions.csv`, `results/logistic_feature_importance.csv`.
+        *   **Logistic diagnostic plots:** `results/plots/logistic_roc_curve.png`, `results/plots/logistic_probability_distribution.png`, `results/plots/logistic_top_feature_importance.png`.
 
 ### Phase 3: Ranking (`--rank-etfs`, `--rank-predictive-metrics`)
 *   **Goal:** Provide actionable lists of ETFs or Metrics.
@@ -82,7 +83,11 @@ project_root/
 │   ├── etfs/            # Individual ticker CSVs (fetched data)
 │   └── ...
 ├── results/
-│   └── plots/           # Generated probability curves (PNGs)
+│   ├── plots/           # Enumeration + logistic diagnostic plots (PNGs)
+│   ├── experiment_summary.txt
+│   ├── logistic_experiment_summary.txt
+│   ├── logistic_predictions.csv
+│   └── logistic_feature_importance.csv
 ├── screener/            # Source code
 ├── docs/                # Documentation
 └── etf_rankings.csv     # Output of the ranking workflow
