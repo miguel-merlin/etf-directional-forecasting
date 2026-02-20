@@ -67,13 +67,18 @@ python3 -m screener.main --model-etf-returns \
   --etf-dir data/etfs \
   --macro-dir data/macro \
   --model-target-months 6 \
-  --model-type stepwise
+  --model-type stepwise \
+  --model-class-weight balanced
 ```
 
 **Model Types:**
 - `enumeration` (default) – Quantile-based binning to estimate conditional probabilities $P(Return > 0 | Bin)$.
 - `logistic` – Trains a Logistic Regression classifier on all available features and saves diagnostics/plots.
 - `stepwise` – Performs forward feature selection to find the most predictive subset of indicators using ROC-AUC and saves selection diagnostics.
+
+**Imbalance handling (`logistic`/`stepwise`):**
+- `--model-class-weight none` (default) – no class reweighting.
+- `--model-class-weight balanced` – automatically upweights the minority class during training.
 
 **What you get (`enumeration`):**
 - **Probability Plots:** Visualizations in `results/plots/` showing the relationship between metric bins and return probabilities.

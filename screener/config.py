@@ -51,3 +51,4 @@ class ETFReturnModelingConfig:
     target_return_period_months: int = 6
     n_bins: int = 5
     model: ModelType = ModelType.ENUMERATION
+    model_class_weight: str = "none"

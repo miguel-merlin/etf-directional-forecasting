@@ -61,8 +61,12 @@ def run_ranking_workflow(config: RankingConfig) -> None:
 def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
     """Model ETF returns based on historical data and features."""
     etf_price_data = load_etf_data_from_csvs(config.data_dir)
+    class_weight = None if config.model_class_weight == "none" else config.model_class_weight
     predictor = ETFReturnPredictor(
-        etf_price_data, results_dir=config.results_dir, model_type=config.model.value
+        etf_price_data,
+        results_dir=config.results_dir,
+        model_type=config.model.value,
+        class_weight=class_weight,
     )
     target = predictor.create_target_variable(months=config.target_return_period_months)
     print("Target variable created. Shape:", target.shape)
@@ -199,6 +203,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=ModelType.ENUMERATION.value,
         help="Modeling approach to use when estimating ETF returns.",
     )
+    parser.add_argument(
+        "--model-class-weight",
+        choices=["none", "balanced"],
+        default="none",
+        help=(
+            "Class weighting strategy for logistic/stepwise models. "
+            "Use 'balanced' to compensate for target imbalance."
+        ),
+    )
 
     return parser.parse_args(argv)
 
@@ -227,6 +240,7 @@ def main() -> None:
         target_return_period_months=args.model_target_months,
         n_bins=args.model_bins,
         model=ModelType(args.model_type),
+        model_class_weight=args.model_class_weight,
     )
 
     if args.fetch_data:

@@ -48,6 +48,7 @@ class ETFReturnPredictor:
         price_data: pd.DataFrame,
         results_dir: str = "results",
         model_type: str = "enumeration",
+        class_weight: Optional[str] = None,
     ):
         """
         Initialize with price data.
@@ -70,6 +71,7 @@ class ETFReturnPredictor:
         self.stepwise_feature_summary = pd.DataFrame()
         self.stepwise_selection_history = pd.DataFrame()
         self.model_type = model_type  # Store the model type
+        self.class_weight = class_weight
 
         self.results_dir = results_dir
         self.plot_dir = os.path.join(results_dir, "plots")
@@ -78,6 +80,15 @@ class ETFReturnPredictor:
             os.makedirs(self.results_dir)
         if not os.path.exists(self.plot_dir):
             os.makedirs(self.plot_dir)
+
+    def _create_logistic_model(self) -> LogisticRegression:
+        """Create logistic model with shared solver/random state/imbalance settings."""
+        return LogisticRegression(
+            solver="liblinear",
+            random_state=42,
+            class_weight=self.class_weight,
+            max_iter=1000,
+        )
 
     def calculate_forward_return(self, months: int = 6) -> pd.DataFrame:
         """Calculate forward returns for specified horizon."""
@@ -211,7 +222,7 @@ class ETFReturnPredictor:
         target : pd.Series
             Series of target variable (0 or 1).
         """
-        self.logistic_model = LogisticRegression(solver="liblinear", random_state=42)
+        self.logistic_model = self._create_logistic_model()
 
         # Robust preprocessing: Replace infinite values with NaN
         combined_data = pd.concat([features, target], axis=1).replace(
@@ -556,7 +567,9 @@ class ETFReturnPredictor:
         y = combined_data["target"].astype(int)
 
         if y.nunique() < 2:
-            print("Target has a single class after cleaning; feature selection requires two classes.")
+            print(
+                "Target has a single class after cleaning; feature selection requires two classes."
+            )
             return []
 
         train_idx, test_idx = train_test_split(
@@ -606,7 +619,9 @@ class ETFReturnPredictor:
             print(
                 f"\nStarting Forward Selection with {len(remaining_features)} candidate features..."
             )
-            print(f"{'Step':<5} {'Feature Added':<30} {'New AUC':<10} {'Improvement':<10}")
+            print(
+                f"{'Step':<5} {'Feature Added':<30} {'New AUC':<10} {'Improvement':<10}"
+            )
             print("-" * 60)
 
         for step in range(max_features):
@@ -615,7 +630,7 @@ class ETFReturnPredictor:
 
             for feature in remaining_features:
                 candidate_features = selected_features + [feature]
-                model = LogisticRegression(solver="liblinear", random_state=42)
+                model = self._create_logistic_model()
                 model.fit(X_train[candidate_features], y_train)
                 y_pred_proba = model.predict_proba(X_test[candidate_features])[:, 1]
                 auc = roc_auc_score(y_test, y_pred_proba)
@@ -672,7 +687,9 @@ class ETFReturnPredictor:
             metrics["roc_auc"] = float("nan")
 
         try:
-            metrics["average_precision"] = float(average_precision_score(y_true, y_score))
+            metrics["average_precision"] = float(
+                average_precision_score(y_true, y_score)
+            )
         except ValueError:
             metrics["average_precision"] = float("nan")
 
@@ -683,7 +700,9 @@ class ETFReturnPredictor:
         if self.logistic_model is None:
             return pd.DataFrame()
 
-        coefs = pd.Series(self.logistic_model.coef_[0], index=X.columns, name="coefficient")
+        coefs = pd.Series(
+            self.logistic_model.coef_[0], index=X.columns, name="coefficient"
+        )
         std = X.std(ddof=0).replace(0, np.nan)
         standardized = (coefs * std).fillna(0.0)
 
@@ -747,7 +766,9 @@ class ETFReturnPredictor:
         ax.grid(alpha=0.3)
         ax.legend(loc="upper center")
         plt.tight_layout()
-        plt.savefig(os.path.join(self.plot_dir, "logistic_probability_distribution.png"))
+        plt.savefig(
+            os.path.join(self.plot_dir, "logistic_probability_distribution.png")
+        )
         plt.close()
 
     def _plot_logistic_feature_importance(
@@ -782,7 +803,9 @@ class ETFReturnPredictor:
         predictions_path = os.path.join(self.results_dir, "logistic_predictions.csv")
         predictions_df.to_csv(predictions_path, index=False)
 
-        features_path = os.path.join(self.results_dir, "logistic_feature_importance.csv")
+        features_path = os.path.join(
+            self.results_dir, "logistic_feature_importance.csv"
+        )
         feature_importance.to_csv(features_path, index=False)
 
         summary_path = os.path.join(self.results_dir, "logistic_experiment_summary.txt")
@@ -796,9 +819,12 @@ class ETFReturnPredictor:
             f.write("=" * 80 + "\n\n")
             f.write("DATASET OVERVIEW:\n")
             f.write(f"- ETFs Analyzed: {', '.join(self.prices.columns)}\n")
-            f.write(f"- Date Range: {self.prices.index.min()} to {self.prices.index.max()}\n")
+            f.write(
+                f"- Date Range: {self.prices.index.min()} to {self.prices.index.max()}\n"
+            )
             f.write(f"- Total Observations (after cleaning): {len(predictions_df)}\n")
             f.write(f"- Total Features: {len(feature_importance)}\n\n")
+            f.write(f"- Class Weight: {self.class_weight or 'none'}\n\n")
 
             f.write("METRICS (0.5 threshold):\n")
             for split_name in ["train", "test", "full_fit"]:
@@ -913,7 +939,9 @@ class ETFReturnPredictor:
         ax.grid(alpha=0.3)
         ax.legend(loc="upper center")
         plt.tight_layout()
-        plt.savefig(os.path.join(self.plot_dir, "stepwise_probability_distribution.png"))
+        plt.savefig(
+            os.path.join(self.plot_dir, "stepwise_probability_distribution.png")
+        )
         plt.close()
 
     def _plot_stepwise_feature_importance(
@@ -950,7 +978,9 @@ class ETFReturnPredictor:
         predictions_path = os.path.join(self.results_dir, "stepwise_predictions.csv")
         predictions_df.to_csv(predictions_path, index=False)
 
-        features_path = os.path.join(self.results_dir, "stepwise_feature_importance.csv")
+        features_path = os.path.join(
+            self.results_dir, "stepwise_feature_importance.csv"
+        )
         feature_importance.to_csv(features_path, index=False)
 
         history_path = os.path.join(self.results_dir, "stepwise_selection_history.csv")
@@ -967,9 +997,14 @@ class ETFReturnPredictor:
             f.write("=" * 80 + "\n\n")
             f.write("DATASET OVERVIEW:\n")
             f.write(f"- ETFs Analyzed: {', '.join(self.prices.columns)}\n")
-            f.write(f"- Date Range: {self.prices.index.min()} to {self.prices.index.max()}\n")
+            f.write(
+                f"- Date Range: {self.prices.index.min()} to {self.prices.index.max()}\n"
+            )
             f.write(f"- Total Observations (after cleaning): {len(predictions_df)}\n")
-            f.write(f"- Selected Features ({len(selected_features)}): {', '.join(selected_features)}\n\n")
+            f.write(
+                f"- Selected Features ({len(selected_features)}): {', '.join(selected_features)}\n"
+            )
+            f.write(f"- Class Weight: {self.class_weight or 'none'}\n\n")
 
             f.write("METRICS (0.5 threshold):\n")
             for split_name in ["train", "test", "full_fit"]:
@@ -1054,7 +1089,9 @@ class ETFReturnPredictor:
             return
 
         if y.nunique() < 2:
-            print("Target has a single class after cleaning; logistic regression requires two classes.")
+            print(
+                "Target has a single class after cleaning; logistic regression requires two classes."
+            )
             return
 
         train_idx, test_idx = train_test_split(
@@ -1064,7 +1101,7 @@ class ETFReturnPredictor:
         y_train, y_test = y.loc[train_idx], y.loc[test_idx]
 
         # Fit on train split for unbiased diagnostics.
-        self.logistic_model = LogisticRegression(solver="liblinear", random_state=42)
+        self.logistic_model = self._create_logistic_model()
         self.logistic_model.fit(X_train, y_train)
 
         train_scores = pd.Series(
@@ -1075,9 +1112,11 @@ class ETFReturnPredictor:
         )
 
         # Refit on full dataset for final coefficients and full-sample predictions.
-        self.logistic_model = LogisticRegression(solver="liblinear", random_state=42)
+        self.logistic_model = self._create_logistic_model()
         self.logistic_model.fit(X, y)
-        full_scores = pd.Series(self.logistic_model.predict_proba(X)[:, 1], index=X.index)
+        full_scores = pd.Series(
+            self.logistic_model.predict_proba(X)[:, 1], index=X.index
+        )
 
         split_column = pd.Series("train", index=X.index)
         split_column.loc[test_idx] = "test"
@@ -1137,7 +1176,9 @@ class ETFReturnPredictor:
             return
 
         if y.nunique() < 2:
-            print("Target has a single class after cleaning; stepwise modeling requires two classes.")
+            print(
+                "Target has a single class after cleaning; stepwise modeling requires two classes."
+            )
             return
 
         train_idx, test_idx = train_test_split(
@@ -1160,7 +1201,7 @@ class ETFReturnPredictor:
         selection_history_df = pd.DataFrame(history)
         self.stepwise_selection_history = selection_history_df
 
-        eval_model = LogisticRegression(solver="liblinear", random_state=42)
+        eval_model = self._create_logistic_model()
         eval_model.fit(X_train[selected], y_train)
         train_scores = pd.Series(
             eval_model.predict_proba(X_train[selected])[:, 1], index=X_train.index
@@ -1169,9 +1210,11 @@ class ETFReturnPredictor:
             eval_model.predict_proba(X_test[selected])[:, 1], index=X_test.index
         )
 
-        self.logistic_model = LogisticRegression(solver="liblinear", random_state=42)
+        self.logistic_model = self._create_logistic_model()
         self.logistic_model.fit(X[selected], y)
-        full_scores = pd.Series(self.logistic_model.predict_proba(X[selected])[:, 1], index=X.index)
+        full_scores = pd.Series(
+            self.logistic_model.predict_proba(X[selected])[:, 1], index=X.index
+        )
 
         split_column = pd.Series("train", index=X.index)
         split_column.loc[test_idx] = "test"
