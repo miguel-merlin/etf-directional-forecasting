@@ -39,10 +39,17 @@ def run_fetch_macro_workflow(config: FetchMacroConfig) -> None:
 
 def run_ranking_workflow(config: RankingConfig) -> None:
     """Rank ETFs stored under the configured directory."""
-    ranker = ETFRanker(config.data_dir)
+    ranker = ETFRanker(
+        config.data_dir, exclude_major_event_dates=config.exclude_major_event_dates
+    )
     rankings = pd.DataFrame()
     if config.rank_predictive_metrics:
-        predictor = ETFReturnPredictor(load_etf_data_from_csvs(config.data_dir))
+        predictor = ETFReturnPredictor(
+            load_etf_data_from_csvs(
+                config.data_dir,
+                exclude_major_event_dates=config.exclude_major_event_dates,
+            )
+        )
         rankings = ETFRanker.rank_predictive_metrics(predictor)
     else:
         rankings = ranker.rank()
@@ -60,8 +67,12 @@ def run_ranking_workflow(config: RankingConfig) -> None:
 
 def run_etf_modeling_workflow(config: ETFReturnModelingConfig) -> None:
     """Model ETF returns based on historical data and features."""
-    etf_price_data = load_etf_data_from_csvs(config.data_dir)
-    class_weight = None if config.model_class_weight == "none" else config.model_class_weight
+    etf_price_data = load_etf_data_from_csvs(
+        config.data_dir, exclude_major_event_dates=config.exclude_major_event_dates
+    )
+    class_weight = (
+        None if config.model_class_weight == "none" else config.model_class_weight
+    )
     predictor = ETFReturnPredictor(
         etf_price_data,
         results_dir=config.results_dir,
@@ -212,6 +223,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "Use 'balanced' to compensate for target imbalance."
         ),
     )
+    parser.add_argument(
+        "--exclude-major-event-dates",
+        action="store_true",
+        help=(
+            "Exclude dates across predefined windows for 9/11 (2001-09-11 to 2001-09-21), "
+            "subprime crisis (2007-07-01 to 2009-06-30), and COVID peak "
+            "(2020-03-01 to 2020-05-31)."
+        ),
+    )
 
     return parser.parse_args(argv)
 
@@ -232,6 +252,7 @@ def main() -> None:
         output_file=args.rankings_output,
         metrics_to_display=tuple(args.display_metrics),
         rank_predictive_metrics=args.rank_predictive_metrics,
+        exclude_major_event_dates=args.exclude_major_event_dates,
     )
     etf_returns_modeling_config = ETFReturnModelingConfig(
         data_dir=args.etf_dir,
@@ -241,6 +262,7 @@ def main() -> None:
         n_bins=args.model_bins,
         model=ModelType(args.model_type),
         model_class_weight=args.model_class_weight,
+        exclude_major_event_dates=args.exclude_major_event_dates,
     )
 
     if args.fetch_data:

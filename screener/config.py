@@ -31,6 +31,7 @@ class RankingConfig:
         "Volatility_%",
     )
     rank_predictive_metrics: bool = False
+    exclude_major_event_dates: bool = False
 
 
 class ModelType(Enum):
@@ -52,3 +53,4 @@ class ETFReturnModelingConfig:
     n_bins: int = 5
     model: ModelType = ModelType.ENUMERATION
     model_class_weight: str = "none"
+    exclude_major_event_dates: bool = False

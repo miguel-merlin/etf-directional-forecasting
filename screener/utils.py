@@ -4,8 +4,55 @@ import os
 import yfinance as yf
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Sequence
 import pandas_datareader.data as web
+
+MAJOR_EVENT_DATE_RANGES: Sequence[tuple[str, str, str]] = (
+    ("2001-09-11", "2001-09-21", "9/11 market disruption"),
+    ("2007-07-01", "2009-06-30", "subprime crisis"),
+    ("2020-03-01", "2020-05-31", "COVID peak"),
+)
+
+
+def filter_dataframe_by_date_ranges(
+    df: pd.DataFrame,
+    date_col: str,
+    date_ranges: Sequence[tuple[str, str, str]],
+) -> tuple[pd.DataFrame, int]:
+    """Drop rows where date_col falls within any inclusive date range."""
+    if df.empty:
+        return df.copy(), 0
+
+    dates = pd.to_datetime(df[date_col], utc=True)
+    keep_mask = pd.Series(True, index=df.index)
+
+    for start, end, _label in date_ranges:
+        start_ts = pd.Timestamp(start, tz="UTC")
+        end_ts = pd.Timestamp(end, tz="UTC")
+        keep_mask &= ~((dates >= start_ts) & (dates <= end_ts))
+
+    dropped = int((~keep_mask).sum())
+    return df.loc[keep_mask].copy(), dropped
+
+
+def filter_index_by_date_ranges(
+    df: pd.DataFrame,
+    date_ranges: Sequence[tuple[str, str, str]],
+) -> tuple[pd.DataFrame, int]:
+    """Drop rows where index falls within any inclusive date range."""
+    if df.empty:
+        return df.copy(), 0
+
+    dates = pd.to_datetime(df.index, utc=True)
+    keep_mask = pd.Series(True, index=df.index)
+
+    for start, end, _label in date_ranges:
+        start_ts = pd.Timestamp(start, tz="UTC")
+        end_ts = pd.Timestamp(end, tz="UTC")
+        keep_mask &= ~((dates >= start_ts) & (dates <= end_ts))
+
+    dropped = int((~keep_mask).sum())
+    return df.loc[keep_mask].copy(), dropped
 
 
 def _collect_csv_files(source: str) -> list[str]:
@@ -128,7 +175,9 @@ def fetch_yfinance_data(tickers, output_dir="data"):
     return info_df, all_history
 
 
-def load_etf_data_from_csvs(data_dir: str) -> pd.DataFrame:
+def load_etf_data_from_csvs(
+    data_dir: str, exclude_major_event_dates: bool = False
+) -> pd.DataFrame:
     """
     Load ETF data from multiple CSV files and create price DataFrame.
 
@@ -174,6 +223,15 @@ def load_etf_data_from_csvs(data_dir: str) -> pd.DataFrame:
     prices_df = pd.DataFrame(price_data)
     prices_df = prices_df.ffill()
     prices_df = prices_df.dropna(how="all")
+
+    if exclude_major_event_dates:
+        prices_df, dropped_rows = filter_index_by_date_ranges(
+            prices_df, MAJOR_EVENT_DATE_RANGES
+        )
+        print(
+            f"Excluded {dropped_rows} date row(s) across major event windows: "
+            f"{', '.join(f'{label} ({start} to {end})' for start, end, label in MAJOR_EVENT_DATE_RANGES)}"
+        )
 
     print(f"Loaded {len(prices_df.columns)} ETFs with {len(prices_df)} dates")
     print(f"Date range: {prices_df.index.min()} to {prices_df.index.max()}")

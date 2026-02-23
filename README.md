@@ -58,6 +58,7 @@ The CLI exposes flags for fetching data, ranking ETFs, and modeling returns.
 - `python -m screener.main --rank-etfs` – calculate performance metrics for ETFs in `data/etfs`.
 - `python -m screener.main --rank-predictive-metrics` – use the modeling engine to rank all available metrics by their Information Gain.
 - `python -m screener.main --rank-etfs --display-metrics Sharpe_Ratio Annualized_Return_%` – pass custom metrics to display.
+- `python -m screener.main --model-etf-returns --exclude-major-event-dates` – exclude predefined shock windows from the dataset (9/11, subprime crisis, COVID peak).
 
 ## Modeling ETF returns
 The modeling workflow estimates the probability of positive forward returns based on technical and macro indicators.
@@ -79,6 +80,12 @@ python3 -m screener.main --model-etf-returns \
 **Imbalance handling (`logistic`/`stepwise`):**
 - `--model-class-weight none` (default) – no class reweighting.
 - `--model-class-weight balanced` – automatically upweights the minority class during training.
+
+**Event-window exclusion (`ranking`/`modeling`):**
+- `--exclude-major-event-dates` removes rows in these inclusive windows:
+- 9/11 market disruption: `2001-09-11` to `2001-09-21`
+- Subprime crisis: `2007-07-01` to `2009-06-30`
+- COVID peak: `2020-03-01` to `2020-05-31`
 
 **What you get (`enumeration`):**
 - **Probability Plots:** Visualizations in `results/plots/` showing the relationship between metric bins and return probabilities.

@@ -4,20 +4,31 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 from screener.modeling import ETFReturnPredictor
+from screener.utils import MAJOR_EVENT_DATE_RANGES, filter_dataframe_by_date_ranges
 
 
 class ETFRanker:
     """Ranks ETFs based on performance metrics or predictor outputs."""
 
-    def __init__(self, data_dir: str = "data"):
+    def __init__(self, data_dir: str = "data", exclude_major_event_dates: bool = False):
         self.data_dir = Path(data_dir)
+        self.exclude_major_event_dates = exclude_major_event_dates
 
     @staticmethod
-    def calculate_metrics(df: pd.DataFrame, ticker: str) -> Dict:
+    def calculate_metrics(
+        df: pd.DataFrame, ticker: str, exclude_major_event_dates: bool = False
+    ) -> Dict:
         """Calculate performance metrics for a single ETF."""
         df = df.copy()
         df["Date"] = pd.to_datetime(df["Date"], utc=True)
         df = df.sort_values("Date")
+        if exclude_major_event_dates:
+            df, _dropped_rows = filter_dataframe_by_date_ranges(
+                df, "Date", MAJOR_EVENT_DATE_RANGES
+            )
+
+        if len(df) < 2:
+            raise ValueError("Insufficient data points after date exclusions.")
 
         df["Daily_Return"] = df["Close"].pct_change()
         total_return = (df["Close"].iloc[-1] / df["Close"].iloc[0] - 1) * 100
@@ -76,7 +87,11 @@ class ETFRanker:
             try:
                 df = pd.read_csv(csv_file)
                 ticker = csv_file.stem
-                metrics = self.calculate_metrics(df, ticker)
+                metrics = self.calculate_metrics(
+                    df,
+                    ticker,
+                    exclude_major_event_dates=self.exclude_major_event_dates,
+                )
                 results.append(metrics)
             except Exception as e:
                 print(f"Error processing {csv_file.name}: {e}")
@@ -150,8 +165,12 @@ def calculate_metrics(df: pd.DataFrame, ticker: str) -> Dict:
     return ETFRanker.calculate_metrics(df, ticker)
 
 
-def rank_etfs(data_dir: str = "data") -> pd.DataFrame:
-    return ETFRanker(data_dir).rank()
+def rank_etfs(
+    data_dir: str = "data", exclude_major_event_dates: bool = False
+) -> pd.DataFrame:
+    return ETFRanker(
+        data_dir, exclude_major_event_dates=exclude_major_event_dates
+    ).rank()
 
 
 def display_rankings(rankings_df: pd.DataFrame, metric: str = "Sharpe_Ratio"):
